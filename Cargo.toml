@@ -12,6 +12,8 @@ categories = ["game-engines", "network-programming"]
 
 license = "MIT"
 
+repository = "https://github.com/gamemachine/tachyon-networking"
+
 [lib]
 name="tachyon"
 crate-type = ["cdylib"]
