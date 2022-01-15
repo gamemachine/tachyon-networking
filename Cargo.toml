@@ -22,7 +22,7 @@ libc = "0.2"
 rustc-hash = "1.1.0"
 socket2 = "0.4.2"
 varuint = "0.6"
-rpmalloc = "0.2.2"
+#rpmalloc = "0.2.2"
 rand = "0.8.4"
 
 [profile.test]
