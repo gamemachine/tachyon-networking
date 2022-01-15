@@ -84,13 +84,13 @@ fn general_stress() {
     let client_address = NetworkAddress::default();
 
     let drop_reliable_only = 0;
-    let client_drop_chance = 1;
-    let server_drop_chance = 1;
-    let loop_count = 100000;
+    let client_drop_chance = 10;
+    let server_drop_chance = 40;
+    let loop_count = 70000;
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
-    let send_message_size = 900;
+    let send_message_size = 32;
     
     let mut send_buffer: Vec<u8> = vec![0;2048];
     let mut receive_buffer: Vec<u8> = vec![0;4096];

@@ -15,8 +15,8 @@ pub const TACHYON_FRAGMENTED_HEADER_SIZE: usize = 10;
 #[derive(Default)]
 pub struct Header {
     pub message_type: u8,
-    pub sequence: u16,
     pub channel: u8,
+    pub sequence: u16,
 
     pub fragment_group: u16,
     pub fragment_start_sequence: u16,

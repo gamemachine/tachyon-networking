@@ -9,6 +9,10 @@ impl  Sequence {
         ((s1 < s2) && (s2 - s1 > 32768));
     }
 
+    pub fn is_less_than(s1: u16, s2: u16) -> bool {
+        return Sequence::is_greater_then(s2, s1)
+    }
+
     pub fn next_sequence(sequence: u16) -> u16 {
         if sequence >= std::u16::MAX - 1 {
             return 0;

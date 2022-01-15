@@ -125,7 +125,6 @@ pub struct Tachyon {
     pub channels: FxHashMap<(NetworkAddress,u8),Channel>,
     pub config: TachyonConfig,
     pub nack_send_data: Vec<u8>,
-    pub none_send_data: Vec<u8>,
     pub resend_sequences: Vec<u16>,
     pub counters: SocketTimeCounters,
     pub stats: TachyonStats
@@ -147,7 +146,6 @@ impl Tachyon {
             socket: socket,
             config,
             nack_send_data: vec![0;4096],
-            none_send_data: vec![0;TACHYON_HEADER_SIZE],
             resend_sequences: Vec::new(),
             counters,
             stats: TachyonStats::default()

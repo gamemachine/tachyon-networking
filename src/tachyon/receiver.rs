@@ -1,7 +1,5 @@
     use std::{collections::VecDeque};
 
-
-
     use super::{sequence::*, nack::Nack, sequence_buffer::SequenceBuffer};
 
     const RECEIVE_BUFFER_SIZE: u16 = 1024;
@@ -230,7 +228,7 @@
         pub fn write_nacks(&mut self, data: &mut [u8], position: u64) -> (u64,u64) {
             self.nack_list.clear();
             self.set_resend_list();
-            Nack::create_nacks(&self.resend_list, &mut self.nack_list);
+            Nack::create_from_reverse_sequence_list(&self.resend_list, &mut self.nack_list);
             let nack_len = Nack::write_varint(&self.nack_list, &mut data[..], position);
             return (nack_len,self.resend_list.len() as u64);
         }

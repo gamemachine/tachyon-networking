@@ -7,9 +7,11 @@ Reliabilty is based on receive windows and is quite robust.  Receive windows are
 
 The design is that nack requests are always acknowledged.  If the other side no longer has the message buffered it responds with a NONE message. But it always responds.
 
-Nacks are only sent once per frame/update.  Here I borrowed [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) and encode nacks using bit flags.  I walk the receive window back to front and create a nack message for every 32 sequence numbers, and then pack all of those into a varint encoded packet.  So it's quite space efficient.  The only down side to this approach is it's a single nack packet per frame, so those nack messages themselves can get lost.  But with such a large receive window it's still quite resilient even with heavy packet loss.
+Nacks are only sent once per frame/update.  Here I borrowed [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) and encode nacks using bit flags.  I walk the receive window back to front and create a nack message for every 33 sequence numbers, and then pack all of those into a varint encoded packet.  So it's quite space efficient.  The only down side to this approach is it's a single nack packet per frame, so those nack messages themselves can get lost.  But with such a large receive window it's still quite resilient even with heavy packet loss.
 
-So worst case there are 512 nacks.  32 nack messages * 6 bytes each = 96 bytes, but those are varint encoded so something less then 96.  Those are all in a single packet with it's own 4 byte header.  Plus IP/UDP headers.
+So worst case there are 512 nacks.  So 16 nack messages 6 bytes each for 96 bytes total. But those are varint encoded so something less then 96.  Those are all in a single packet with it's own 4 byte header.  Plus IP/UDP headers.
+
+If you have really high packet loss you will start requesting sequences the other side doesn't have, as your own receive window is not increasing from all the lost packets.  This is basically a failed connnection as in my testing it took around 80% sustained packet loss at high message counts to start generating NONE responses.
 
 ## Fragmentation
 Fragments are individually reliable.  Each one is sent as a separate sequenced message.  So larger messages work fairly well here.
