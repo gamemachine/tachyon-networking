@@ -10,6 +10,7 @@ description = "a Nack based reliable udp library for games and IPC"
 keywords = ["gamedev", "networking", "udp","ipc"]
 categories = ["game-engines", "network-programming"]
 
+readme = "README.md"
 license = "MIT"
 
 repository = "https://github.com/gamemachine/tachyon-networking"
