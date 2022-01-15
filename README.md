@@ -19,9 +19,13 @@ The difference here is pretty simple and as you would expect.  Ordered messages 
 Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 4 bytes. And received messages will also include the 4 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
 
 ## Performance and concurrency
-Performance is fairly good but depends a lot on network packet loss.  Cpu time goes up as the receive window gets larger.  More clients will increase this also.  I have some built in tools for testing where you can configure the udp layer to drop packets.  I think around 2k clients is likely a realistic max right now.   
+Performance is fairly good but depends a lot on network packet loss.  Cpu time goes up as the receive window gets larger.  More clients will increase this also.  I have some built in tools for testing where you can configure the udp layer to drop packets.  I think around 2k clients is likely a realistic max right now.  Functionally I've tested up to 4k, I just don't think it will perform well enough at that number right now.
 
 Which brings me to concurrency.  The patterns that can take this to where it can bury the hardware are fairly straight forward, but the Rust compiler can't reason about those. So that's my main challenge atm plus I'm fairly new to Rust.  The core design I want is batch based.  Receive from the network into a set of batches, then process those partitioned over a thread per batch.  Fairly simple flow with minimal number of atomic ops (but an additional memcpy). But to Rust its' all shared state.
 
+In the end I might just end up solving this using multiple ports. Add a batching send/receive api and that might be the simplest route here. 
+
 ## Usage
-Right now unfortunately not any documentation.  The best guide is look at tachyon_tests.rs and at ffi.rs.  Since my usage is actually all via ffi from a .NET server.  
+Right now unfortunately not any documentation.  The best guide is look at tachyon_tests.rs and at ffi.rs.  Since my usage is actually all via ffi from a .NET server. 
+
+There are two preconfigured channels, channel 1 is ordered and channel 2 is unordered.  Channel 0 is reserved.
