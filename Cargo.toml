@@ -1,0 +1,29 @@
+[package]
+name = "tachyon-networking"
+version = "0.1.0"
+edition = "2021"
+authors = [
+    "Chris Ochs <chris@ochsnet.com>"
+]
+
+description = "a Nack based reliable udp library for games and IPC"
+keywords = ["gamedev", "networking", "udp","ipc"]
+categories = ["game-engines", "network-programming"]
+
+license = "MIT"
+
+[lib]
+name="tachyon"
+crate-type = ["cdylib"]
+
+
+[dependencies]
+libc = "0.2"
+rustc-hash = "1.1.0"
+socket2 = "0.4.2"
+varuint = "0.6"
+rpmalloc = "0.2.2"
+rand = "0.8.4"
+
+[profile.test]
+opt-level = 3
