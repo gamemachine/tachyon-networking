@@ -2,7 +2,7 @@
 
 
 
-    use super::{sequence::*, nack::Nack, network_address::NetworkAddress, sequence_buffer::SequenceBuffer};
+    use super::{sequence::*, nack::Nack, sequence_buffer::SequenceBuffer};
 
     const RECEIVE_BUFFER_SIZE: u16 = 1024;
     const RECEIVE_WINDOW_SIZE_DEFAULT: u16 = 512;
