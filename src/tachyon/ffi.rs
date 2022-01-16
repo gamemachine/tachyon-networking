@@ -32,16 +32,9 @@ pub extern "C" fn connect_socket(tachyon_ptr: *mut Tachyon, naddress: *const Net
 }
 
 #[no_mangle]
-pub extern "C" fn create_channel(tachyon_ptr: *mut Tachyon, naddress: *const NetworkAddress, channel_id: u8, ordered: u8) -> u8 {
+pub extern "C" fn configure_channel(tachyon_ptr: *mut Tachyon, channel_id: u8, ordered: u8) {
     let tachyon = unsafe {&mut*tachyon_ptr};
-    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
-
-    let created = tachyon.create_channel(address, channel_id, ordered == 1);
-    if created {
-        return 1;
-    } else {
-        return 0;
-    }
+    tachyon.configure_channel(channel_id, ordered == 1);
 }
 
 fn copy_send_result(from: TachyonSendResult, to: *mut TachyonSendResult) {
@@ -127,7 +120,7 @@ pub extern "C" fn get_client_addresses(tachyon_ptr: *mut Tachyon, addresses: *mu
 }
 
 #[no_mangle]
-pub extern "C" fn get_stats(tachyon_ptr: *mut Tachyon, stats: *mut TachyonStats) -> i32 {
+pub extern "C" fn get_stats(tachyon_ptr: *mut Tachyon, stats: *mut TachyonStats) {
     let tachyon = unsafe {&mut*tachyon_ptr};
     let combined = tachyon.get_combined_stats();
     unsafe {
@@ -136,5 +129,4 @@ pub extern "C" fn get_stats(tachyon_ptr: *mut Tachyon, stats: *mut TachyonStats)
         (*stats).unreliable_sent = combined.unreliable_sent;
         (*stats).unreliable_received = combined.unreliable_received;
     }
-    return 0;
 }

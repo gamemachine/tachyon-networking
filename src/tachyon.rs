@@ -123,6 +123,7 @@ pub struct Tachyon {
     pub socket: TachyonSocket,
     pub connections: FxHashMap<NetworkAddress, Connection>,
     pub channels: FxHashMap<(NetworkAddress,u8),Channel>,
+    pub channel_config: FxHashMap<u8, bool>,
     pub config: TachyonConfig,
     pub nack_send_data: Vec<u8>,
     pub resend_sequences: Vec<u16>,
@@ -140,9 +141,10 @@ impl Tachyon {
             socket_send_time: 0
         };
         
-        let tachyon = Tachyon {
+        let mut tachyon = Tachyon {
             connections: FxHashMap::default(),
             channels: FxHashMap::default(),
+            channel_config: FxHashMap::default(),
             socket: socket,
             config,
             nack_send_data: vec![0;4096],
@@ -150,6 +152,8 @@ impl Tachyon {
             counters,
             stats: TachyonStats::default()
         };
+        tachyon.channel_config.insert(1, true);
+        tachyon.channel_config.insert(2, false);
 
         return tachyon;
     }
@@ -171,21 +175,26 @@ impl Tachyon {
         }
     }
 
-    pub fn create_channel(&mut self, address: NetworkAddress, channel_id: u8, ordered: bool) -> bool {
-        if channel_id == 0 {
-            return false;
+    pub fn create_configured_channels(&mut self, address: NetworkAddress) {
+        for config in &self.channel_config {
+            let channel_id = *config.0;
+            let ordered = *config.1;
+            match self.channels.get_mut(&(address, channel_id)) {
+                Some(_) => {
+                },
+                None => {
+                    let channel = Channel::create(channel_id, ordered, address, self.config.receive_window_size);
+                    self.channels.insert((address, channel_id), channel);
+                },
+            }
         }
+    }
 
-        match self.channels.get_mut(&(address, channel_id)) {
-            Some(_) => {
-                return false;
-            },
-            None => {
-                let channel = Channel::create(channel_id, ordered, address, self.config.receive_window_size);
-                self.channels.insert((address, channel_id), channel);
-                return true;
-            },
+    pub fn configure_channel(&mut self, channel_id: u8, ordered: bool) {
+        if channel_id < 3 {
+            return;
         }
+        self.channel_config.insert(channel_id, ordered);
     }
 
     pub fn connect(&mut self, address: NetworkAddress) -> i32 {
@@ -193,8 +202,7 @@ impl Tachyon {
             CreateConnectResult::Success => {
                 let local_address = NetworkAddress::default();
                 self.try_create_connection(local_address);
-                self.create_channel(local_address, 1, true);
-                self.create_channel(local_address, 2, false);
+                self.create_configured_channels(local_address);
                 return 0;
             },
             CreateConnectResult::Error => {
@@ -221,25 +229,6 @@ impl Tachyon {
             return true;
         } else {
             return false;
-        }
-    }
-
-    pub fn update(&mut self) {
-        for channel in self.channels.values_mut() {
-            channel.frag.expire_groups();
-            channel.receiver.publish();
-            let nack_res = channel.receiver.write_nacks(&mut self.nack_send_data, TACHYON_HEADER_SIZE as u64);
-            let nack_len = nack_res.0;
-            let nacks_sent = nack_res.1;
-            if nacks_sent > 0 && nack_len > 0 {
-                let mut header = Header::default();
-                header.message_type = MESSAGE_TYPE_RESEND;
-                header.channel = channel.id;
-                header.write(&mut self.nack_send_data);
-                let send_len = nack_len as usize + TACHYON_HEADER_SIZE;
-                self.socket.send_to(channel.address, &self.nack_send_data, send_len);
-            }
-            channel.stats.nacks_sent +=nacks_sent;
         }
     }
 
@@ -270,7 +259,26 @@ impl Tachyon {
         return list;
     }
 
-    
+    pub fn update(&mut self) {
+        for channel in self.channels.values_mut() {
+            channel.frag.expire_groups();
+            channel.receiver.publish();
+            let nack_res = channel.receiver.write_nacks(&mut self.nack_send_data, TACHYON_HEADER_SIZE as u64);
+            let nack_len = nack_res.0;
+            let nacks_sent = nack_res.1;
+            if nacks_sent > 0 && nack_len > 0 {
+                let mut header = Header::default();
+                header.message_type = MESSAGE_TYPE_RESEND;
+                header.channel = channel.id;
+                header.write(&mut self.nack_send_data);
+                let send_len = nack_len as usize + TACHYON_HEADER_SIZE;
+                self.socket.send_to(channel.address, &self.nack_send_data, send_len);
+
+                channel.stats.nacks_sent +=nacks_sent;
+            }
+            
+        }
+    }
 
     fn receive_published_channel_id(&mut self, receive_buffer:  &mut[u8], address: NetworkAddress, channel_id: u8) -> u32 {
         match self.channels.get_mut(&(address,channel_id)) {
@@ -395,8 +403,7 @@ impl Tachyon {
 
                 if self.socket.is_server {
                     if self.try_create_connection(address) {
-                        self.create_channel(address, 1, true);
-                        self.create_channel(address, 2, false);
+                        self.create_configured_channels(address);
                     }
                 }
             },
@@ -486,7 +493,7 @@ impl Tachyon {
     pub fn send_unreliable(&mut self, address: NetworkAddress, data:  &mut [u8], length: usize) -> TachyonSendResult {
         let mut result = TachyonSendResult::default();
 
-        if length <= 6 {
+        if length < 1 {
             result.error = SEND_ERROR_LENGTH;
             return result;
         }
@@ -606,7 +613,102 @@ impl Tachyon {
 #[cfg(test)]
 mod tests {
 
+    use serial_test::serial;
+
     use super::*;
+
+    
+    
+    #[test]
+    #[serial]
+    fn test_reliable() {
+       
+        // reliable messages just work with message bodies, headers are all internal
+
+        let mut test = Testing::default();
+        test.connect();
+
+        test.send_buffer[0] = 4;
+        let sent = test.client_send_reliable(1, 2);
+        // sent_len reports total including header.
+        assert_eq!(2 + TACHYON_HEADER_SIZE, sent.sent_len as usize);
+
+        let res = test.server_receive();
+        assert_eq!(2, res.length);
+        assert_eq!(4, test.receive_buffer[0]);
+
+        test.client_send_reliable(2, 33);
+        let res = test.server_receive();
+        assert_eq!(33, res.length);
+
+        // fragmented
+        test.client_send_reliable(2, 3497);
+        let res = test.server_receive();
+        assert_eq!(3497, res.length);
+
+    }
+
+    #[test]
+    #[serial]
+    fn test_unconfigured_channel_fails() {
+       
+        let mut test = Testing::default();
+        test.client.configure_channel(3, true);
+        test.connect();
+
+        let sent = test.client_send_reliable(3, 2);
+        assert_eq!(2 + TACHYON_HEADER_SIZE, sent.sent_len as usize);
+        assert_eq!(0, sent.error);
+
+        let res = test.server_receive();
+        assert_eq!(0, res.length);
+        assert_eq!(RECEIVE_ERROR_CHANNEL, res.error);
+        
+    }
+
+    #[test]
+    #[serial]
+    fn test_configured_channel() {
+       
+        let mut test = Testing::default();
+        test.client.configure_channel(3, true);
+        test.server.configure_channel(3, true);
+        test.connect();
+
+        let sent = test.client_send_reliable(3, 2);
+        assert_eq!(2 + TACHYON_HEADER_SIZE, sent.sent_len as usize);
+        assert_eq!(0, sent.error);
+
+        let res = test.server_receive();
+        assert_eq!(2, res.length);
+        assert_eq!(0, res.error);
+        
+    }
+
+    #[test]
+    #[serial]
+    fn test_unreliable() {
+        let mut test = Testing::default();
+        test.connect();
+
+        // unreliable messages need to be body length + 1;
+        // send length error
+        let send = test.client_send_unreliable(0);
+        assert_eq!(SEND_ERROR_LENGTH, send.error);
+
+        let res = test.server_receive();
+        assert_eq!(0, res.length);
+
+        test.receive_buffer[0] = 1;
+        test.send_buffer[1] = 4;
+        let sent = test.client_send_unreliable(2);
+        assert_eq!(2, sent.sent_len as usize);
+
+        let res = test.server_receive();
+        assert_eq!(2, res.length);
+        assert_eq!(0, test.receive_buffer[0]);
+        assert_eq!(4, test.receive_buffer[1]);
+    }
 
     pub struct Testing {
         pub client_address: NetworkAddress,
@@ -623,10 +725,8 @@ mod tests {
 
             let address = NetworkAddress::test_address();
             let config = TachyonConfig::default();
-            let mut server = Tachyon::create(config);
-            server.bind(address);
-            let mut client = Tachyon::create(config);
-            client.connect(address);
+            let server = Tachyon::create(config);
+            let client = Tachyon::create(config);
 
             let default = Testing {
                 client_address: NetworkAddress::default(),
@@ -638,6 +738,11 @@ mod tests {
                 send_buffer: vec![0;4096]
             };
             return default;
+        }
+
+        pub fn connect(&mut self) {
+            assert_eq!(0,self.server.bind(self.address), "bind failed");
+            assert_eq!(0,self.client.connect(self.address), "connect failed");
         }
 
         pub fn remote_client(&self) -> NetworkAddress {
@@ -684,53 +789,6 @@ mod tests {
             return self.client.receive_loop(&mut self.receive_buffer);
         }
     }
-    
-    #[test]
-    fn test_reliable() {
-       
-        // reliable messages just work with message bodies, headers are all internal
-
-        let mut test = Testing::default();
-
-        test.send_buffer[0] = 4;
-        test.client_send_reliable(1, 2);
-        let res = test.server_receive();
-        assert_eq!(2, res.length);
-        assert_eq!(4, test.receive_buffer[0]);
-
-        test.client_send_reliable(2, 33);
-        let res = test.server_receive();
-        assert_eq!(33, res.length);
-
-        // fragmented
-        test.client_send_reliable(2, 3497);
-        let res = test.server_receive();
-        assert_eq!(3497, res.length);
-
-    }
-
-    #[test]
-    fn test_unreliable() {
-        let mut test = Testing::default();
-        
-        // send length error
-        let send = test.client_send_unreliable(2);
-        assert_eq!(SEND_ERROR_LENGTH, send.error);
-
-        let res = test.server_receive();
-        assert_eq!(0, res.length);
-
-        // unreliable messages include header
-        test.receive_buffer[0] = 1;
-        test.send_buffer[6] = 4;
-        test.client_send_unreliable(7);
-
-        let res = test.server_receive();
-        assert_eq!(7, res.length);
-        assert_eq!(0, test.receive_buffer[0]);
-        assert_eq!(4, test.receive_buffer[6]);
-    }
-
 
 }
 

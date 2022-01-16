@@ -27,6 +27,7 @@ socket2 = "0.4.2"
 varuint = "0.6"
 #rpmalloc = "0.2.2"
 rand = "0.8.4"
+serial_test = "0.5.1"
 
 [profile.test]
 opt-level = 3
