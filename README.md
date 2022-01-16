@@ -3,17 +3,22 @@
 Tachyon is a reliable udp library that uses a nack based model. It provides ordered and unordered channels as well as fragmentation.
 
 ## Reliablity
-Reliabilty is based on receive windows and is quite robust.  Receive windows are configurable the default is set to 512 messages.  The window is defined as the last in order message through the last received message.
+Reliabilty is based on message receive windows of a maximum size, the default being 512.  The window is defined as the last in order message through the last received message.  If the difference exceeds the max the start of the window is increased by one, and the missing packet for that slot is then lost.
 
 The design is that nack requests are always acknowledged.  If the other side no longer has the message buffered it responds with a NONE message. But it always responds.
 
-Nacks are only sent once per frame/update.  Here I borrowed [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) and encode nacks using bit flags.  I walk the receive window back to front and create a nack message for every 33 sequence numbers, and then pack all of those into a varint encoded packet.  So it's quite space efficient.  The only down side to this approach is it's a single nack packet per frame, so those nack messages themselves can get lost.  But with such a large receive window it's still quite resilient even with heavy packet loss.
+Nacks are only sent once per frame/update.  Here I borrowed [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) and encode nacks using bit flags.  I walk the receive window back to front and create a nack message for every 33 sequence numbers, and then pack all of those into a varint encoded packet.  So it's quite space efficient.  It also works similarly to Glen's approach in how many chances a packet has to be acked. But instead of being a fixed number it's based on the receive window size.
 
-If you have really high packet loss you will start requesting sequences the other side doesn't have, as your own receive window is not increasing from all the lost packets.  This is basically a failed connnection as in my testing it took around 80% sustained packet loss at high message counts to start generating NONE responses.
+Vs a more traditional ack system it's roughly the same in terms of reliablity, but more space efficient because we only nack what is missing.  Nack models aren't widely used because they don't work for the generic case well.  The model relies on having a steady stream of messages to know what is missing. And that messages are mostly smaller and a relatively small receive window so send buffers don't grow too large..  Games have the qualities needed to make the model work well.
+
+But you do need to be mindful of how this works, so that for every channel you have setup, you are sending a message per frame on every one. If you have an ordered channel just for large messages that's likely safe, as the fragments are themselves part of the ordered stream and will trigger nacks.  A header + 1 sized message is sufficient here, and big picture sending these keep alives is still far less bandwidth then a traditional ack model.
+
 
 ## Channels
 Sequencing is per channel. With every connected address (connection) having it's own set of channels.  And per channel stats that are recorded.
 The system configures two channels automatically channel 1 being ordered and channel 2 unordered. And you can add more but they need to be added before bind/connect.  Because they are per address, on the server side we lazily create channels as we see receives from new addresses.  This means there are a lot of channels, so creating channels unnecessarily is a bad idea.  You don't need a lot of channels, at most 1-2 extra ordered channels if you have classes of messages that vary a lot in size AND are actually competing, ie possibly being sent at the same time.
+
+
 
 ## Fragmentation
 Fragments are individually reliable.  Each one is sent as a separate sequenced message.  So larger messages work fairly well, just not too large where you start chewing up too much of the receive window.
