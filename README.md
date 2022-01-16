@@ -28,7 +28,7 @@ Unreliable messages have a hot path where there is almost no processing done.  R
 This is best managed outside the library itself mostly, but I will be adding an approved address map so receives can early out.  That's about as much as I think a library at this level should be doing.
 
 ## Performance and concurrency
-Performance is fairly good but depends a lot on network packet loss.  Cpu time goes up as the receive window gets larger.  More clients will increase this also.  I have some built in tools for testing where you can configure the udp layer to drop packets.  I think around 2k clients is likely a realistic max right now.  Functionally I've tested up to 4k, I just don't think it will perform well enough at that number right now.
+Performance is fairly good but server side depends a lot on network packet loss.  Cpu time goes up as receive windows grow.  I have some built in tools for testing where you can configure the udp layer to drop packets.  I think around 2k clients or so is likely around the max it will handle right now with some medium packet loss.  Past that it's likely to just start taking too long, but this is really going to vary a lot based on hardware and packet loss patterns.
 
 Which brings me to concurrency.  The patterns that can take this to where it can bury the hardware are fairly straight forward, but the Rust compiler can't reason about those. So that's my main challenge atm plus I'm fairly new to Rust.  The core design I want is batch based.  Receive from the network into a set of batches, then process those partitioned over a thread per batch.  Fairly simple flow with minimal number of atomic ops (but an additional memcpy). But to Rust its' all shared state.
 
