@@ -5,11 +5,135 @@ use crate::tachyon::*;
 use crate::tachyon::receiver::*;
 use crate::tachyon::header::*;
 
+pub struct TachyonTestClient {
+    pub client_address: NetworkAddress,
+    pub client: Tachyon,
+    pub address: NetworkAddress,
+    pub config: TachyonConfig,
+    pub receive_buffer: Vec<u8>,
+    pub send_buffer: Vec<u8>
+}
+
+impl TachyonTestClient {
+    pub fn create(address: NetworkAddress) -> Self {
+        let config = TachyonConfig::default();
+        let client = Tachyon::create(config);
+
+        let default = TachyonTestClient {
+            client_address: NetworkAddress::default(),
+            address: address,
+            config: config,
+            client: client,
+            receive_buffer: vec![0;4096],
+            send_buffer: vec![0;4096]
+        };
+        return default;
+    }
+
+    pub fn connect(&mut self) {
+        assert!(self.client.connect(self.address), "connect failed");
+    }
+
+    pub fn client_send_reliable(&mut self, channel_id: u8, length: usize) -> TachyonSendResult {
+        return self.client.send_reliable(channel_id, self.client_address, &mut self.send_buffer, length);
+    }
+
+    pub fn client_send_unreliable(&mut self, length: usize) -> TachyonSendResult {
+        return self.client.send_unreliable(self.client_address, &mut self.send_buffer, length);
+    }
+
+    pub fn client_receive(&mut self) -> TachyonReceiveResult {
+        return self.client.receive_loop(&mut self.receive_buffer);
+    }
+}
+
+pub struct TachyonTest {
+    pub client_address: NetworkAddress,
+    pub client: Tachyon,
+    pub server : Tachyon,
+    pub address: NetworkAddress,
+    pub config: TachyonConfig,
+    pub receive_buffer: Vec<u8>,
+    pub send_buffer: Vec<u8>
+}
+
+impl  TachyonTest {
+    pub fn default() -> Self {
+
+        let address = NetworkAddress::test_address();
+        return TachyonTest::create(address);
+        
+    }
+
+    pub fn create(address: NetworkAddress) -> Self {
+        let config = TachyonConfig::default();
+        let server = Tachyon::create(config);
+        let client = Tachyon::create(config);
+
+        let default = TachyonTest {
+            client_address: NetworkAddress::default(),
+            address: address,
+            config: config,
+            client: client,
+            server: server,
+            receive_buffer: vec![0;4096],
+            send_buffer: vec![0;4096]
+        };
+        return default;
+    }
+
+    pub fn connect(&mut self) {
+        assert!(self.server.bind(self.address), "bind failed");
+        assert!(self.client.connect(self.address), "connect failed");
+    }
+
+    pub fn remote_client(&self) -> NetworkAddress {
+        let list = self.server.get_connections(100);
+        if list.len() > 0 {
+            return list[0].address;
+        } else {
+            return NetworkAddress::default();
+        }
+    }
+
+    pub fn server_send_reliable(&mut self, channel_id: u8, length: usize) -> TachyonSendResult {
+
+        let address = self.remote_client();
+        if address.is_default() {
+            return TachyonSendResult::default();
+        }
+        return self.server.send_reliable(channel_id, address, &mut self.send_buffer, length);
+    }
+
+    pub fn server_send_unreliable(&mut self, length: usize) -> TachyonSendResult {
+
+        let address = self.remote_client();
+        if address.is_default() {
+            return TachyonSendResult::default();
+        }
+        return self.server.send_unreliable(address, &mut self.send_buffer, length);
+    }
+
+    pub fn client_send_reliable(&mut self, channel_id: u8, length: usize) -> TachyonSendResult {
+        return self.client.send_reliable(channel_id, self.client_address, &mut self.send_buffer, length);
+    }
+
+    pub fn client_send_unreliable(&mut self, length: usize) -> TachyonSendResult {
+        return self.client.send_unreliable(self.client_address, &mut self.send_buffer, length);
+    }
+
+    pub fn server_receive(&mut self) -> TachyonReceiveResult {
+        return self.server.receive_loop(&mut self.receive_buffer);
+    }
+
+    pub fn client_receive(&mut self) -> TachyonReceiveResult {
+        return self.client.receive_loop(&mut self.receive_buffer);
+    }
+}
 
 
 pub fn show_channel_debug(channel: &mut Receiver) {
-    let start = channel.current_sequence;
-    let end = channel.last_sequence;
+   
     print!("current:{0} last:{1}\n", channel.current_sequence, channel.last_sequence);
     channel.set_resend_list();
     for seq in &channel.resend_list {
@@ -77,6 +201,53 @@ fn send_receive(update: bool, send: bool, channel_id: u8, message_type: u8, clie
 
 }
 
+#[test]
+fn receive_unreliable_perf() {
+    let mut test = TachyonTest::default();
+    test.connect();
+
+    for _ in 0..40000 {
+        let _sent = test.client_send_unreliable(32);
+    }
+
+    let now = Instant::now();
+    for _ in 0..42000 {
+        let res = test.server_receive();
+        if res.length == 0 {
+            break;
+        }
+    }
+    let elapsed = now.elapsed();
+    println!("Elapsed: {:.2?}", elapsed);
+
+    print!("CombinedStats:{0}\n", test.server.get_combined_stats());
+
+}
+
+
+#[test]
+fn receive_perf() {
+    let mut test = TachyonTest::default();
+    test.connect();
+    test.server.socket.test_mode = true;
+
+    for _ in 0..40000 {
+        let _sent = test.client_send_reliable(1, 32);
+    }
+
+    let now = Instant::now();
+    for _ in 0..42000 {
+        let res = test.server_receive();
+        if res.length == 0 {
+            break;
+        }
+    }
+    let elapsed = now.elapsed();
+    println!("Elapsed: {:.2?}", elapsed);
+
+    print!("CombinedStats:{0}\n", test.server.get_combined_stats());
+
+}
 
 #[test]
 fn general_stress() {
@@ -150,8 +321,6 @@ fn general_stress() {
         },
         None => {},
     }
-
-    println!("socket send_time:{0} receive_time:{1}\n", server.counters.socket_send_time / 1000,server.counters.socket_receive_time / 1000);
     
   
 }
@@ -159,7 +328,6 @@ fn general_stress() {
 #[test]
 fn many_clients() {
     let address = NetworkAddress::test_address();
-    let client_address = NetworkAddress::default();
 
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
@@ -170,7 +338,7 @@ fn many_clients() {
     let mut receive_buffer: Vec<u8> = vec![0;4096];
 
     let mut config = TachyonConfig::default();
-    //config.drop_packet_chance = 1;
+    config.drop_packet_chance = 0;
     
     let mut server = Tachyon::create(config);
     server.bind(address);
@@ -192,12 +360,11 @@ fn many_clients() {
     
     let now = Instant::now();
     for _ in 0..100 {
-        let receive_result = server.receive_loop(&mut receive_buffer);
+        let _receive_result = server.receive_loop(&mut receive_buffer);
         server.update();
     }
     let elapsed = now.elapsed();
     println!("Elapsed: {:.2?}", elapsed);
-    println!("socket send_time:{0} receive_time:{1}\n", server.counters.socket_send_time / 1000,server.counters.socket_receive_time / 1000);
     print!("CombinedStats:{0}\n", server.get_combined_stats());
 
 }

@@ -247,8 +247,6 @@ mod tests {
 
     #[test]
     fn test_write_read() {
-        let nack = create_full_nack(1);
-
         let mut data:Vec<u8> = vec![0;1024];
         let mut sequences_out: Vec<u16> = Vec::new();
         let mut nacks: Vec<Nack> = Vec::new();

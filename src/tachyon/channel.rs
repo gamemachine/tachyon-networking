@@ -1,6 +1,6 @@
 
 
-use super::{fragmentation::Fragmentation, send_buffer_manager::SendBufferManager, receiver::Receiver, network_address::NetworkAddress};
+use super::{fragmentation::Fragmentation, send_buffer_manager::SendBufferManager, receiver::Receiver, network_address::NetworkAddress, header::{TACHYON_HEADER_SIZE, MESSAGE_TYPE_NONE, TACHYON_FRAGMENTED_HEADER_SIZE, MESSAGE_TYPE_FRAGMENT, Header}, int_buffer::IntBuffer};
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -88,5 +88,50 @@ impl Channel {
 
     pub fn update_stats(&mut self) {
         self.stats.skipped_sequences = self.receiver.skipped_sequences;
+    }
+
+    pub fn receive_published(&mut self, receive_buffer:  &mut[u8]) -> (u32, NetworkAddress) {
+        match self.receiver.take_published() {
+            Some(buffer) => {
+
+                let buffer_len = buffer.len();
+
+                // msg length of TACHYON_HEADER_SIZE should be MESSAGE_TYPE_NONE.
+                // if this is a fragment we just orphaned the fragment group.  these will be expired in update()
+                if buffer_len == TACHYON_HEADER_SIZE {
+                    let mut reader = IntBuffer {index: 0 };
+                    let message_type = reader.read_u8(&buffer);
+                    if message_type == MESSAGE_TYPE_NONE {
+                        return (0, NetworkAddress::default());
+                    }
+                }
+
+                // could be a fragment, or just a tiny message
+                if buffer_len == TACHYON_FRAGMENTED_HEADER_SIZE {
+                    let header = Header::read_fragmented(&buffer);
+                    if header.message_type == MESSAGE_TYPE_FRAGMENT {
+                        match self.frag.assemble(header) {
+                            Ok(res) => {
+                                let assembled_len = res.len();
+                                receive_buffer[0..assembled_len].copy_from_slice(&res[..]);
+                                self.stats.received += 1;
+                                self.stats.fragments_assembled += header.fragment_count as u64;
+                                self.stats.published_consumed += 1;
+                                return (assembled_len as u32, self.address);
+                            },
+                            Err(_) => {
+                                return (0, self.address);
+                            },
+                        }
+                    }
+                }
+                
+                self.stats.published_consumed += 1;
+                receive_buffer[0..buffer_len-TACHYON_HEADER_SIZE].copy_from_slice(&buffer[TACHYON_HEADER_SIZE..buffer_len]);
+                return ((buffer_len - TACHYON_HEADER_SIZE) as u32, self.address);
+            },
+            None => {},
+        }
+        return (0, NetworkAddress::default());
     }
 }

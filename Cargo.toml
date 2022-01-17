@@ -1,6 +1,6 @@
 [package]
 name = "tachyon-networking"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2021"
 authors = [
     "Chris Ochs <chris@ochsnet.com>"
@@ -28,6 +28,8 @@ varuint = "0.6"
 #rpmalloc = "0.2.2"
 rand = "0.8.4"
 serial_test = "0.5.1"
+rayon = "1.5.1"
+crossbeam = "0.8.1"
 
 [profile.test]
 opt-level = 3

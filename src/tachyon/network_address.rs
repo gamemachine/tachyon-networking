@@ -13,6 +13,13 @@ pub struct NetworkAddress {
     pub port: u32
 }
 
+impl std::fmt::Display for NetworkAddress {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f,"{0}.{1}.{2}.{3}:{4}\n",
+         self.a, self.b, self.c, self.d, self.port)
+    }
+}
+
 impl Hash for NetworkAddress {
     fn hash<H: Hasher>(&self, hasher: &mut H) {
         let hash = NetworkAddress::get_hash(&self);
@@ -36,6 +43,28 @@ impl NetworkAddress {
             c: 0,
             d: 1,
             port: 8265,
+        };
+        return address;
+    }
+
+    pub fn localhost(port: u32) -> Self {
+        let address = NetworkAddress {
+            a: 127,
+            b: 0,
+            c: 0,
+            d: 1,
+            port: port,
+        };
+        return address;
+    }
+
+    pub fn mock_client_address() -> Self {
+        let address = NetworkAddress {
+            a: 127,
+            b: 0,
+            c: 0,
+            d: 1,
+            port: 4598,
         };
         return address;
     }

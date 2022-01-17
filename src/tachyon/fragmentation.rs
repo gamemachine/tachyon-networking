@@ -168,8 +168,7 @@ impl  Fragmentation {
 
 #[cfg(test)]
 mod tests {
-    use core::time;
-    use std::{thread, time::Duration};
+    use std::{time::Duration};
 
     use crate::tachyon::fragmentation::*;
     

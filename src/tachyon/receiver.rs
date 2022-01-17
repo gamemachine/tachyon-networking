@@ -3,7 +3,7 @@
     use super::{sequence::*, nack::Nack, sequence_buffer::SequenceBuffer};
 
     const RECEIVE_BUFFER_SIZE: u16 = 1024;
-    const RECEIVE_WINDOW_SIZE_DEFAULT: u16 = 512;
+    pub const RECEIVE_WINDOW_SIZE_DEFAULT: u16 = 512;
 
     pub struct Receiver {
         pub is_ordered: bool,
@@ -89,14 +89,7 @@
 
 
         pub fn take_published(&mut self) -> Option<Vec<u8>> {
-            match self.published.pop_front() {
-                Some(value) => {
-                    return Some(value);
-                },
-                None => {
-                    return None;
-                },
-            }
+            return self.published.pop_front();
         }
        
         fn is_buffered(&self, sequence: u16) -> bool {
@@ -142,7 +135,7 @@
             if sequence == next {
                 let last_sequence = self.current_sequence;
                 self.current_sequence = sequence;
-                self.received.take(last_sequence);
+                self.received.remove(last_sequence);
             }
 
             // resends can be higher then current and already received.
@@ -174,15 +167,19 @@
                 if self.is_received(seq) {
                     
                     if self.current_sequence == seq {
-                        self.received.take(seq);
+                        self.received.remove(seq);
                     } else if step_sequence && Sequence::is_greater_then(seq, self.current_sequence) {
                         self.current_sequence = seq;
-                        self.received.take(seq);
+                        self.received.remove(seq);
                     }
                     
                     if self.is_buffered(seq) {
-                        let buffer = self.buffered.take(seq);
-                        self.published.push_back(buffer.unwrap());
+                        match self.buffered.take(seq) {
+                            Some(buffer) => {
+                                self.published.push_back(buffer);
+                            },
+                            None => {},
+                        }
                     }
                     
                 } else {
@@ -240,7 +237,6 @@
 mod tests {
 
     use crate::tachyon::receiver::*;
-    use crate::tachyon::sequence::*;
 
     #[test]
     fn test_skipped() {
@@ -339,26 +335,26 @@ mod tests {
         let data: Vec<u8> = vec![0;1024];
         assert_eq!(0, channel.current_sequence);
 
-        let receive_result = channel.receive_packet(5, &data[..], 32);
+        let _receive_result = channel.receive_packet(5, &data[..], 32);
         channel.set_resend_list();
         assert_eq!(4, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(4, &data[..], 32);
+        let _receive_result = channel.receive_packet(4, &data[..], 32);
         channel.set_resend_list();
         assert_eq!(3, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(3, &data[..], 32);
+        let _receive_result = channel.receive_packet(3, &data[..], 32);
         channel.set_resend_list();
         assert_eq!(2, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(2, &data[..], 32);
+        let _receive_result = channel.receive_packet(2, &data[..], 32);
         assert_eq!(0, channel.current_sequence);
         assert_eq!(5, channel.last_sequence);
 
         channel.set_resend_list();
         assert_eq!(1, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(1, &data[..], 32);
+        let _receive_result = channel.receive_packet(1, &data[..], 32);
         assert_eq!(5, channel.current_sequence);
         assert_eq!(5, channel.last_sequence);
         channel.set_resend_list();
@@ -374,7 +370,7 @@ mod tests {
 
         let mut sequence = 1;
         for _ in 1..200000 {
-            let receive_result = channel.receive_packet(sequence, &data[..], 32);
+            let _receive_result = channel.receive_packet(sequence, &data[..], 32);
             if channel.current_sequence != sequence {
                 print!("{0} {1} {2}\n", sequence, channel.current_sequence, channel.last_sequence);
                 panic!();
@@ -394,19 +390,19 @@ mod tests {
     fn publish_consume_publish() {
         let mut channel = Receiver::default(true);
         let data: Vec<u8> = vec![0;1024];
-        let receive_result = channel.receive_packet(1, &data[..], 32);
-        let receive_result = channel.receive_packet(2, &data[..], 32);
+        let _receive_result = channel.receive_packet(1, &data[..], 32);
+        let _receive_result = channel.receive_packet(2, &data[..], 32);
         assert!((channel.take_published().is_some()));
         assert!((channel.take_published().is_some()));
         assert!((channel.take_published().is_none()));
 
-        let receive_result = channel.receive_packet(4, &data[..], 32);
-        let receive_result = channel.receive_packet(3, &data[..], 32);
+        let _receive_result = channel.receive_packet(4, &data[..], 32);
+        let _receive_result = channel.receive_packet(3, &data[..], 32);
         assert!((channel.take_published().is_some()));
         assert!((channel.take_published().is_some()));
         assert!((channel.take_published().is_none()));
 
-        let receive_result = channel.receive_packet(5, &data[..], 32);
+        let _receive_result = channel.receive_packet(5, &data[..], 32);
         assert!((channel.take_published().is_some()));
         assert!((channel.take_published().is_none()));
 
@@ -432,6 +428,7 @@ mod tests {
    
 
     #[test]
+    #[allow(dead_code)]
     fn ordered_flow_test() {
         let mut channel = Receiver::default(true);
         let data: Vec<u8> = vec![0;1024];
@@ -454,7 +451,7 @@ mod tests {
         channel.set_resend_list();
         assert_eq!(2, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(2, &data[..], 32);
+        let _receive_result = channel.receive_packet(2, &data[..], 32);
         assert_eq!(3, channel.current_sequence);
         assert_eq!(3, channel.published.len());
         
@@ -462,7 +459,7 @@ mod tests {
         assert_eq!(1, channel.resend_list.len());
         
 
-        let receive_result = channel.receive_packet(4, &data[..], 32);
+        let _receive_result = channel.receive_packet(4, &data[..], 32);
         assert_eq!(5, channel.current_sequence);
         assert_eq!(5, channel.last_sequence);
         channel.set_resend_list();
@@ -481,25 +478,26 @@ mod tests {
     }
 
     #[test]
+    #[allow(dead_code)]
     fn unordered_flow_test() {
         let mut channel = Receiver::default(false);
         let data: Vec<u8> = vec![0;1024];
-        let receive_result = channel.receive_packet(1, &data[..], 32);
+        let _receive_result = channel.receive_packet(1, &data[..], 32);
         assert_eq!(1, channel.published.len());
-        let receive_result = channel.receive_packet(5, &data[..], 32);
+        let _receive_result = channel.receive_packet(5, &data[..], 32);
         assert_eq!(2, channel.published.len());
         assert_eq!(1, channel.current_sequence);
         assert_eq!(5, channel.last_sequence);
         channel.set_resend_list();
         assert_eq!(3, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(3, &data[..], 32);
+        let _receive_result = channel.receive_packet(3, &data[..], 32);
         assert_eq!(1, channel.current_sequence);
 
         channel.set_resend_list();
         assert_eq!(2, channel.resend_list.len());
 
-        let receive_result = channel.receive_packet(2, &data[..], 32);
+        let _receive_result = channel.receive_packet(2, &data[..], 32);
         assert_eq!(3, channel.current_sequence);
         assert_eq!(4, channel.published.len());
         
@@ -507,7 +505,7 @@ mod tests {
         assert_eq!(1, channel.resend_list.len());
         
 
-        let receive_result = channel.receive_packet(4, &data[..], 32);
+        let _receive_result = channel.receive_packet(4, &data[..], 32);
         assert_eq!(5, channel.current_sequence);
         assert_eq!(5, channel.last_sequence);
         channel.set_resend_list();

@@ -32,7 +32,6 @@ impl<T> SequenceBuffer<T> {
     pub fn take(&mut self, sequence: u16) -> Option<T> {
         let index = self.sequence_to_index(sequence);
         return self.values[index].take();
-        
     }
 
     pub fn get(&self, sequence: u16) -> Option<&T> {

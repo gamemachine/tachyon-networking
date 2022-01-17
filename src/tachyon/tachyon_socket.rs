@@ -1,10 +1,10 @@
-use std::{net::{UdpSocket, SocketAddrV4, Ipv4Addr}, io, time::Instant};
+use std::{net::{UdpSocket, SocketAddrV4, Ipv4Addr}, io, env::consts::OS};
 
-use rand::Rng;
+use rand::{Rng, prelude::StdRng, SeedableRng};
 use rand::prelude::ThreadRng;
 use socket2::{Socket, Domain, Type};
 
-use super::{network_address::NetworkAddress, SocketTimeCounters, int_buffer::IntBuffer, header::MESSAGE_TYPE_RELIABLE};
+use super::{network_address::NetworkAddress, int_buffer::IntBuffer, header::{MESSAGE_TYPE_RELIABLE, Header}, sequence::Sequence};
 
 
 pub enum CreateConnectResult {
@@ -23,7 +23,9 @@ pub struct TachyonSocket {
     pub address: NetworkAddress,
     pub is_server: bool,
     pub socket: Option<UdpSocket>,
-    pub rng: ThreadRng
+    pub rng: StdRng,
+    pub test_mode: bool,
+    pub test_sequence: u16
 }
 
 impl  TachyonSocket {
@@ -33,9 +35,22 @@ impl  TachyonSocket {
             address: NetworkAddress::default(),
             is_server: false,
             socket: None,
-            rng: rand::thread_rng()
+            rng: SeedableRng::seed_from_u64(32634),
+            test_mode: false,
+            test_sequence: 0
         };
         return socket;
+    }
+
+    pub fn clone_socket(&self) -> Option<UdpSocket> {
+        match &self.socket {
+            Some(sock) => {
+                return Some(sock.try_clone().unwrap());
+            },
+            None => {
+                return None
+            },
+        }
     }
 
     pub fn bind_socket(&mut self, naddress: NetworkAddress) -> CreateConnectResult {
@@ -116,6 +131,18 @@ impl  TachyonSocket {
     }
 
     pub fn receive(&mut self, data:  &mut[u8], drop_chance: u64, drop_reliable_only: bool) -> SocketReceiveResult {
+
+        if self.test_mode {
+            let mut head = Header::default();
+            head.message_type = MESSAGE_TYPE_RELIABLE;
+            head.channel = 1;
+            head.sequence = self.test_sequence;
+            self.test_sequence = Sequence::next_sequence(self.test_sequence);
+            head.write(data);
+            let socket_result = SocketReceiveResult::Success { bytes_received: 32, network_address: NetworkAddress::mock_client_address() };
+            return socket_result;
+        }
+
         let socket = match &self.socket {
             Some(v) =>{v},
             None => {
@@ -151,14 +178,6 @@ impl  TachyonSocket {
         }
     }
 
-    pub fn send_to_timed(counters: &mut SocketTimeCounters, socket: &TachyonSocket, address: NetworkAddress, data:  &[u8], length: usize) -> usize {
-        let now = Instant::now();
-        let sent_len = socket.send_to(address, data, length);
-        let elapsed = now.elapsed().as_micros();
-        counters.socket_send_time  += elapsed;
-        return sent_len;
-    }
-    
     pub fn send_to(&self,address: NetworkAddress, data:  &[u8], length: usize) -> usize {
         match &self.socket {
             Some(socket) => {
