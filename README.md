@@ -69,10 +69,13 @@ if receive_result.length > 0 && receive_result.error == 0 {
 ```
 let mut pool = Pool::create();
 let config = TachyonConfig::default();
+
+// create_server also binds the port
 pool.create_server(config, NetworkAddress::localhost(8001));
 pool.create_server(config, NetworkAddress::localhost(8002));
 pool.create_server(config, NetworkAddress::localhost(8003));
 
+// using built in test client which removes some boilerplate
 let mut client1 = TachyonTestClient::create(NetworkAddress::localhost(8001));
 let mut client2 = TachyonTestClient::create(NetworkAddress::localhost(8002));
 let mut client3 = TachyonTestClient::create(NetworkAddress::localhost(8003));
