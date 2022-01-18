@@ -30,6 +30,7 @@ rand = "0.8.4"
 serial_test = "0.5.1"
 rayon = "1.5.1"
 crossbeam = "0.8.1"
+synchronoise = "1.0.0"
 
 [profile.test]
 opt-level = 3
