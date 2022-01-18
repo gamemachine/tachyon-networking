@@ -2,20 +2,24 @@
 
 Tachyon is a performant and highly parallel reliable udp library that uses a nack based model. It provides strong reliablity, ordered and unordered channels, and reliable fragmentation.
 
+When would you use Tachyon? Enet is probably the most direct competitor in terms of features and performance.  For most games it won't matter pick one.  If you are running larger scale stuff or want something that can do efficient high throughput IPC, then Tachyon is going to shine there.  
+
+Tachyon also has better parallelism and the concurrency model is well defined. So even at smaller volumes you can process receives off the main thread easily.  And what is and isn't thread safe is very clear.
+
 ## Reliablity
-Reliabilty is based on message receive windows of a maximum size, the default being 512.  The window is defined as the last in order message through the last received message.  If the difference exceeds the max the start of the window is increased by one, and the missing packet for that slot is then lost.
+Reliabilty is based on receive windows that have a configurable max, the default being 512  The window is defined as the last in order message through the last received message.  If the difference exceeds the max the start of the window is increased by one, and the missing packet for that slot is then lost.
 
 The design is that nack requests are always acknowledged.  If the other side no longer has the message buffered it responds with a NONE message. But it always responds.
 
-Nacks are only sent once per frame/update.  Here I borrowed [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) and encode nacks using bit flags.  I walk the receive window back to front and create a nack message for every 33 sequence numbers, and then pack all of those into a varint encoded packet.  So it's quite space efficient.  It also works similarly to Glen's approach in how many chances a packet has to be acked. But instead of being a fixed number it's based on the receive window size.
+Nacks are only sent once per frame/update.  Here I borrowed [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) and encode nacks using bit flags.  I walk the receive window back to front and create a nack message (6 bytes) for every 33 sequence numbers, and then pack all of those into a varint encoded packet.  So it's quite space efficient. It also works similarly to Glen's approach in how many chances a packet has to be acked. But instead of being a fixed number it's based on the receive window size.
 
 Vs a more traditional ack system it's roughly the same in terms of reliablity, but more space efficient because we only nack what is missing.  Nack models aren't widely used because they don't work for the generic case well.  The model relies on having a steady stream of messages to know what is missing. And that messages are mostly smaller and a relatively small receive window so send buffers don't grow too large..  Games have the qualities needed to make the model work well.
 
-But you do need to be mindful of how this works, so that for every channel you have setup, you are sending a message per frame on every one. If you have an ordered channel just for large messages that's likely safe, as the fragments are themselves part of the ordered stream and will trigger nacks.  A header + 1 sized message is sufficient here, and big picture sending these keep alives is still far less bandwidth then a traditional ack model.
+But you do need to be mindful of how this works, so that for every channel you have setup, you are sending messages regularly to keep the nack system moving.  A header + 1 sized message per frame is sufficient here, and big picture sending these keep alives is still far less bandwidth then a traditional ack model.
 
 
 ## Channels
-Sequencing is per channel. With every connected address (connection) having it's own set of channels.  And per channel stats that are recorded.
+Sequencing is per channel. With every connected address (connection) having it's own set of channels.
 The system configures two channels automatically channel 1 being ordered and channel 2 unordered. And you can add more but they need to be added before bind/connect.  Because they are per address, on the server side we lazily create channels as we see receives from new addresses. 
 
 ## Fragmentation

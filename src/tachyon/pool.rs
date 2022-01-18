@@ -67,7 +67,7 @@ impl Pool {
         return self.published.pop_front();
     }
 
-    pub fn move_received_to_published(&mut self) -> i32 {
+    fn move_received_to_published(&mut self) -> i32 {
         let mut count = 0;
         for _ in 0..self.receive_queue.len() {
             if let Some(mut receive_queue) = self.receive_queue.pop() {
