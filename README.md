@@ -37,11 +37,16 @@ Concurrent sending is supported for unreliable but not reliable. For reliable se
 
 Parallel receiving does have additional overhead.  It allocates bytes for received messages and then finally pushes those all to a single consumer queue. The design is a concurrent queue of non concurrent queues, so a parallel receive we do a single atomic pop to get the regular queue, and another one to push it back on the concurrent queue once receiving is done. Other then the countdown event for waiting on the parallel work that's the entirety of the concurrency.
 
+### When to use the pool
+First off if it's not obvious it's only needed server side.  You might want to always use the pool just to leverage the ability to receive non blocking and remove that part from the main thread.  But you probably need several hundred clients before that is really a win. Tachyon is very performant.
+
 ## Performance
 Cpu time is mostly in udp syscalls. But very heavy packet loss can also increase cpu time because larger receive windows make Tachyon itself do more work as it has to iterate over those.
 
 ## Usage
 Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
+
+One important note is that update() has to be called regularly as that is where nacks are generated and sent.  In addition to some housekeeping and fragment expiration.  Sends/receives are all processed immediately there is no queuing of anything there.
 
 ### Basic usage.
 
@@ -62,6 +67,10 @@ let receive_result = server.receive_loop(&mut receive_buffer);
 if receive_result.length > 0 && receive_result.error == 0 {
     server.send_reliable(1, receive_result.address, &mut send_buffer, 32);
 }
+
+client.update();
+server.update();
+
 ```
 
 
