@@ -63,3 +63,36 @@ if receive_result.length > 0 && receive_result.error == 0 {
     server.send_reliable(1, receive_result.address, &mut send_buffer, 32);
 }
 ```
+
+
+### Pool usage
+```
+let mut pool = Pool::create();
+let config = TachyonConfig::default();
+pool.create_server(config, NetworkAddress::localhost(8001));
+pool.create_server(config, NetworkAddress::localhost(8002));
+pool.create_server(config, NetworkAddress::localhost(8003));
+
+let mut client1 = TachyonTestClient::create(NetworkAddress::localhost(8001));
+let mut client2 = TachyonTestClient::create(NetworkAddress::localhost(8002));
+let mut client3 = TachyonTestClient::create(NetworkAddress::localhost(8003));
+client1.connect();
+client2.connect();
+client3.connect();
+
+let count = 20000;
+let msg_len = 64;
+
+for _ in 0..count {
+    client1.client_send_reliable(1, msg_len);
+    client2.client_send_reliable(1, msg_len);
+    client3.client_send_reliable(1, msg_len);
+}
+// non blocking receive
+let receiving = pool.receive();
+
+// call this to finish/wait on the receive.
+let res = pool.finish_receive();
+
+// or alternative call pool.receive_blocking() which doesn't need a finish_receive().
+```
