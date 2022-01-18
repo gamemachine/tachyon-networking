@@ -41,4 +41,25 @@ Parallel receiving does have additional overhead.  It allocates bytes for receiv
 Cpu time is mostly in udp syscalls. But very heavy packet loss can also increase cpu time because larger receive windows make Tachyon itself do more work as it has to iterate over those.
 
 ## Usage
-Right now unfortunately not any documentation.  The best guide is look at the tests in tachyon.rs and at ffi.rs.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
+Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
+
+### Basic usage.
+
+```
+let config = TachyonConfig::default();
+let server = Tachyon::create(config);
+let client = Tachyon::create(config);
+
+let address = NetworkAddress { a: 127, b: 0, c: 0, d: 0, port: 8001};
+server.bind(address);
+client.connect(address);
+
+let send_buffer: Vec<u8> = vec![0;1024];
+let receive_buffer: Vec<u8> = vec![0;4096];
+
+client.send_reliable(1, NetworkAddress::default(), &mut send_buffer, 32);
+let receive_result = server.receive_loop(&mut receive_buffer);
+if receive_result.length > 0 && receive_result.error == 0 {
+    server.send_reliable(1, receive_result.address, &mut send_buffer, 32);
+}
+```

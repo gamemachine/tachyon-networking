@@ -18,7 +18,6 @@ impl TachyonTestClient {
     pub fn create(address: NetworkAddress) -> Self {
         let config = TachyonConfig::default();
         let client = Tachyon::create(config);
-
         let default = TachyonTestClient {
             client_address: NetworkAddress::default(),
             address: address,
