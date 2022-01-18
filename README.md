@@ -1,6 +1,6 @@
 # Tachyon
 
-Tachyon is a performant and highly parallel reliable udp library that uses a nack based model. It provides ordered and unordered channels as well as fragmentation.
+Tachyon is a performant and highly parallel reliable udp library that uses a nack based model. It provides strong reliablity, ordered and unordered channels, and reliable fragmentation.
 
 ## Reliablity
 Reliabilty is based on message receive windows of a maximum size, the default being 512.  The window is defined as the last in order message through the last received message.  If the difference exceeds the max the start of the window is increased by one, and the missing packet for that slot is then lost.
