@@ -38,7 +38,7 @@ Concurrent sending is supported for unreliable but not reliable. For reliable se
 Parallel receiving does have additional overhead.  It allocates bytes for received messages and then finally pushes those all to a single consumer queue. The design is a concurrent queue of non concurrent queues, so a parallel receive we do a single atomic pop to get the regular queue, and another one to push it back on the concurrent queue once receiving is done. Other then the countdown event for waiting on the parallel work that's the entirety of the concurrency.
 
 ### When to use the pool
-First off if it's not obvious it's only needed server side.  You might want to always use the pool just to leverage the ability to receive non blocking and remove that part from the main thread.  But you probably need several hundred clients before that is really a win. Tachyon is very performant.
+First off if it's not obvious it's only needed server side.  You might want to always use the pool just to leverage the ability to receive non blocking and remove that part from the main thread.  But you probably need several hundred clients before that is really a win. I would start using the pool at around 400 or so based on my own testing. 
 
 ## Performance
 Cpu time is mostly in udp syscalls. But very heavy packet loss can also increase cpu time because larger receive windows make Tachyon itself do more work as it has to iterate over those.
