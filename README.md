@@ -4,20 +4,21 @@ Tachyon is a performant and highly parallel reliable udp library that uses a nac
 
 
 ## Reliablity
-Reliabilty is based on receive windows that are configurable in size, with a default of 512.  Windows, send buffers, and sequences numbers are per channel not global.
-So a receive window of 512 provides reliability for the last 512 messages for the specific channel.
+Reliabilty is based on receive windows that have a configurable max size, with a default of 512.  The window is defined by the last in order sequence number received (current), to the last sequence number received.  If the difference between current and last exceeds the max, current is stepped forward by one. 
+
+Windows, send buffers, and sequences numbers are per channel not global. So a receive window of max 512 provides reliability for the last 512 messages for the specific channel.
 
 The design is that nack requests are always acknowledged. If the other side no longer has the message buffered it responds with a NONE message. But it always responds. In practice it takes extremely high packet loss and/or latency to generate NONE messages. The send buffer is twice the size of the receive window, so you have to go back 1024 messages to get there.  For all effective purposes that's a dead connection.
 
-Nacks are only sent once per frame/update and use a variant of [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) for encoding nacks using bit flags.  The receive window is walked back to front and a nack message (6 bytes) created for every 33 sequence numbers.  Those nacks are then varint encoded in a single packet. 
+Nacks are only sent once per frame/update and use a variant of [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) for encoding nacks using bit flags.  The receive window is walked back to front and a nack message (6 bytes) created for every 33 sequence numbers.  Those nacks are then varint encoded in a single packet.
 
 Nack models aren't widely used because they don't work well for the generic case.  The model relies on having a steady stream of messages to know what is missing. And that messages are not too large so send buffers chew up too much memory.  Games have the qualities needed to make the model work well.
 
 But you do need to be mindful of how this works, so that for every channel you have setup, you are sending messages regularly to keep the nack system moving.  A header + 1 sized message per frame is sufficient here, and big picture sending these keep alives are still far less bandwidth then a traditional ack model.
 
-Tachyon's send buffers are per channel like the receive window, and are currently hard coded to 1024, double the size of the receive window.  A downside of the nack model is send buffers have to be held on to, the sender never gets an acknowledgement when things are going well.  So to account for channels that have occasional large messages and nothing else, a timeout mechanism is also employed to expire messages that hang around too long.
+Tachyon's send buffers are currently hard coded to 1024, double the size of the receive window.  A downside of the nack model is send buffers have to be held on to, the sender never gets an acknowledgement for messages received by the recipient.  So to account for channels that have occasional large messages and nothing else, a timeout mechanism is also employed to expire messages that hang around too long.
 
-For high throughput the suggested approach is use more channels and round robin send over them.  Every channel effectively doubles your receive window if used for the same message type.
+For high throughput the suggested approach is use more channels.  Every channel effectively doubles your receive window capacity.  How you split it up depends.  The basic way all reliable models work is your receive window has to be big enough to handle your volume.  Ie if you are sending 32 messages a frame, and your window is 32 messages, you have no reliablity. Window implementations work differently but the core idea is still the same.    
 
 
 ## Channels
