@@ -7,7 +7,7 @@ Tachyon is a performant and highly parallel reliable udp library that uses a nac
 Reliabilty is based on receive windows that are configurable in size, with a default of 512.  Windows, send buffers, and sequences numbers are per channel not global.
 So a receive window of 512 provides reliability for the last 512 messages for the specific channel.
 
-The design is that nack requests are always acknowledged. If the other side no longer has the message buffered it responds with a NONE message. But it always responds. In practice it takes extremely high packet loss and/or latency to generate NONE messages. As the send buffer is twice the size of the receive window, so you have to go back 1024 messages to get there.  For all effective purposes that's a dead connection.
+The design is that nack requests are always acknowledged. If the other side no longer has the message buffered it responds with a NONE message. But it always responds. In practice it takes extremely high packet loss and/or latency to generate NONE messages. The send buffer is twice the size of the receive window, so you have to go back 1024 messages to get there.  For all effective purposes that's a dead connection.
 
 Nacks are only sent once per frame/update and use a variant of [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) for encoding nacks using bit flags.  The receive window is walked back to front and a nack message (6 bytes) created for every 33 sequence numbers.  Those nacks are then varint encoded in a single packet. 
 
