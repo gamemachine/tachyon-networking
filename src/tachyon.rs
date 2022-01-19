@@ -663,14 +663,18 @@ mod tests {
 
         test.receive_buffer[0] = 1;
         test.send_buffer[1] = 4;
-        let sent = test.client_send_unreliable(2);
+        test.send_buffer[2] = 5;
+        test.send_buffer[3] = 6;
+        let sent = test.client_send_unreliable(4);
         assert_eq!(0, sent.error);
-        assert_eq!(2, sent.sent_len as usize);
+        assert_eq!(4, sent.sent_len as usize);
 
         let res = test.server_receive();
-        assert_eq!(2, res.length);
+        assert_eq!(4, res.length);
         assert_eq!(0, test.receive_buffer[0]);
         assert_eq!(4, test.receive_buffer[1]);
+        assert_eq!(5, test.receive_buffer[2]);
+        assert_eq!(6, test.receive_buffer[3]);
     }
 
    

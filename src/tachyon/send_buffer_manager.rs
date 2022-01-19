@@ -1,11 +1,15 @@
 
+use std::time::Instant;
+
 use super::{sequence::Sequence, sequence_buffer::SequenceBuffer};
 
 pub const SEND_BUFFER_SIZE: u16 = 1024;
+const EXPIRE: u128 = 5000;
 
 pub struct SendBuffer {
     pub sequence: u16,
-    pub buffer: Vec<u8>
+    pub buffer: Vec<u8>,
+    pub created_at: Instant
 }
 pub struct SendBufferManager {
     pub current_sequence: u16,
@@ -52,13 +56,29 @@ impl  SendBufferManager {
         }
     }
 
+    pub fn expire(&mut self) {
+        let mut expired: Vec<u16> = Vec::new();
+
+        for value in &self.buffers.values {
+            if let Some(buffer) = value {
+                if buffer.created_at.elapsed().as_millis() > EXPIRE {
+                    expired.push(buffer.sequence);
+                }
+            }
+        }
+        for sequence in expired {
+            self.buffers.remove(sequence);
+        }
+    }
+
     pub fn create_send_buffer(&mut self, length: usize) -> Option<&mut SendBuffer> {
         self.current_sequence = Sequence::next_sequence(self.current_sequence);
 
         let data = vec![0;length as usize];
         let buffer = SendBuffer {
             sequence: self.current_sequence,
-            buffer: data
+            buffer: data,
+            created_at: Instant::now()
         };
 
         self.buffers.insert(self.current_sequence, buffer);
@@ -77,5 +97,24 @@ impl  SendBufferManager {
 
 #[cfg(test)]
 mod tests {
+    use std::time::{Instant, Duration};
+
+    use super::SendBufferManager;
+
     
+    #[test]
+    fn test_expire() {
+        let mut buffers = SendBufferManager::default();
+        let buffer = buffers.create_send_buffer(32);
+        let buffer = buffer.unwrap();
+        let sequence = buffer.sequence;
+        let now = Instant::now() - Duration::new(6, 0);
+        buffer.created_at = now;
+        
+        let buffer = 0;
+
+        assert!(buffers.buffers.is_some(sequence));
+        buffers.expire();
+        assert!(!buffers.buffers.is_some(sequence));
+    }
 }
