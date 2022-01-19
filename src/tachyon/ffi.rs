@@ -1,4 +1,6 @@
 
+use std::panic::catch_unwind;
+
 use crate::tachyon::*;
 
 use super::pool::Pool;
@@ -133,7 +135,7 @@ pub extern "C" fn send_reliable_to(tachyon_ptr: *mut Tachyon, channel: u8, naddr
     let tachyon = unsafe {&mut*tachyon_ptr};
     let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
     let slice = unsafe {std::slice::from_raw_parts_mut(data, length as usize)};
-    
+   
     let result = tachyon.send_reliable(channel,address, slice, length as usize);
     copy_send_result(result, ret);
 }
@@ -146,6 +148,7 @@ pub extern "C" fn receive(tachyon_ptr: *mut Tachyon, data: *mut u8, receive_buff
     let result = tachyon.receive_loop(slice);
 
     unsafe {
+        (*ret).channel = result.channel;
         (*ret).address = result.address;
         (*ret).length = result.length;
         (*ret).error = result.error;

@@ -16,6 +16,7 @@ pub enum ReceiveResult {
 #[repr(C)]
 #[derive(Default)]
 pub struct TachyonReceiveResult {
+    pub channel: u16,
     pub address: NetworkAddress,
     pub length: u32,
     pub error: u32
@@ -25,6 +26,7 @@ pub struct TachyonReceiveResult {
 impl TachyonReceiveResult {
     pub fn default() -> Self {
         let result = TachyonReceiveResult {
+            channel: 0,
             address: NetworkAddress::default(),
             length: 0,
             error: 0

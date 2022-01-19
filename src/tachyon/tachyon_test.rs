@@ -86,7 +86,7 @@ impl  TachyonTest {
         assert!(self.client.connect(self.address), "connect failed");
     }
 
-    pub fn remote_client(&self) -> NetworkAddress {
+    pub fn remote_client(&mut self) -> NetworkAddress {
         let list = self.server.get_connections(100);
         if list.len() > 0 {
             return list[0].address;
