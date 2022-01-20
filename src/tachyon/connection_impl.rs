@@ -4,7 +4,7 @@ use std::time::Instant;
 
 use super::Tachyon;
 use super::network_address::NetworkAddress;
-use super::connection::Connection;
+use super::connection::{Connection, Identity};
 use super::header::{MESSAGE_TYPE_IDENTITY_LINKED, ConnectionHeader, MESSAGE_TYPE_IDENTITY_UNLINKED, MESSAGE_TYPE_LINK_IDENTITY, MESSAGE_TYPE_UNLINK_IDENTITY};
 
 const IDENTITY_SEND_INTERVAL: u128 = 300;
@@ -65,7 +65,7 @@ impl Tachyon {
     pub fn validate_and_update_linked_connection(&mut self, address: NetworkAddress) -> bool {
         let since_start = self.time_since_start();
         if let Some(conn) = self.connections.get_mut(&address) {
-            if conn.id == 0 {
+            if conn.identity.id == 0 {
                 return false;
             }
             conn.received_at = since_start;
@@ -74,11 +74,19 @@ impl Tachyon {
         return false;
     }
 
+    pub fn get_connection_identity(&self,address: NetworkAddress) -> Identity {
+        if let Some(conn) = self.connections.get(&address) {
+            return conn.identity;
+        } else {
+            return Identity::default();
+        }
+    }
+
     pub fn remove_connection_by_identity(&mut self, id: u32) {
         let mut addresses: Vec<NetworkAddress> = Vec::new();
 
         for conn in self.connections.values_mut() {
-            if conn.id == id {
+            if conn.identity.id == id {
                 addresses.push(conn.address);
             }
         }
@@ -94,9 +102,14 @@ impl Tachyon {
                 return false;
             }
 
+            let identity = self.get_connection_identity(address);
+            if identity.id == id && identity.session_id == *current_session_id {
+                return true;
+            }
+
             self.remove_connection_by_identity(id);
             let mut conn = Connection::create(address, self.id);
-            conn.id = id;
+            conn.identity = Identity {id: id, session_id: session_id, linked: 0 };
             self.connections.insert(address, conn);
             self.create_configured_channels(address);
             self.send_identity_linked(address);
@@ -289,17 +302,8 @@ mod tests {
 
         test.connect();
 
-
-        // link fails = bad session id
-        test.client.last_identity_link_request = Instant::now() - Duration::new(10, 0);
-        test.client.update();
-        test.server_receive();
-        test.client_receive();
-        assert!(!test.client.identity.is_linked());
-
         // linked
         test.server.set_identity(1, 11);
-        test.client.last_identity_link_request = Instant::now() - Duration::new(10, 0);
         test.client.update();
         test.server_receive();
         test.client_receive();
@@ -310,6 +314,30 @@ mod tests {
         test.server_receive();
         test.client_receive();
         assert!(!test.client.identity.is_linked());
+    }
+
+    #[test]
+    fn test_link_fail_flow() {
+        let mut test = TachyonTest::default();
+        test.client.config.use_identity = 1;
+        test.client.identity = Identity {
+            id: 1,
+            session_id: 11,
+            linked: 0
+        };
+
+        test.server.config.use_identity = 1;
+        test.server.set_identity(1, 10);
+
+        test.connect();
+
+
+        // link fails = bad session id
+        test.client.update();
+        test.server_receive();
+        test.client_receive();
+        assert!(!test.client.identity.is_linked());
+
     }
 
 }

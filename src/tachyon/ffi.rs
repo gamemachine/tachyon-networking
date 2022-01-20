@@ -5,6 +5,8 @@ use crate::tachyon::*;
 
 use super::pool::Pool;
 
+
+
 #[no_mangle]
 pub extern "C" fn null_test() -> *mut Pool {
     return std::ptr::null_mut();
@@ -43,6 +45,13 @@ pub extern "C" fn get_pool_server(pool_ptr: *mut Pool, id: u16) -> *mut Tachyon 
         Some(server) => {return server;},
         None => return std::ptr::null_mut(),
     }
+}
+
+
+#[no_mangle]
+pub extern "C" fn register_callbacks(tachyon_ptr: *mut Tachyon, on_connected: OnConnectedCallback) {
+    let tachyon = unsafe {&mut*tachyon_ptr};
+    tachyon.on_connected_callback = Some(on_connected);
 }
 
 #[no_mangle]
@@ -172,6 +181,27 @@ pub extern "C" fn get_connections(tachyon_ptr: *mut Tachyon, addresses: *mut Con
     }
     
     return list.len() as u16;
+}
+
+#[no_mangle]
+pub extern "C" fn tachyon_get_config(tachyon_ptr: *mut Tachyon, config: *mut TachyonConfig, identity: *mut Identity) {
+    let tachyon = unsafe {&mut*tachyon_ptr};
+    unsafe {
+        (*config) = tachyon.config;
+        (*identity) = tachyon.identity;
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn set_identity(tachyon_ptr: *mut Tachyon, id: u32, session_id: u32, on_self: u32) {
+    let tachyon = unsafe {&mut*tachyon_ptr};
+    if on_self == 1 {
+        tachyon.identity.id = id;
+        tachyon.identity.session_id = session_id;
+    } else {
+        tachyon.set_identity(id, session_id);
+    }
+    
 }
 
 #[no_mangle]

@@ -22,6 +22,7 @@ mod connection_impl;
 #[cfg(test)]
 pub mod tachyon_test;
 
+use std::time::Duration;
 use std::time::Instant;
 
 use rustc_hash::FxHashMap;
@@ -51,6 +52,8 @@ pub const SEND_ERROR_IDENTITY: u32 = 6;
 
 pub static mut NONE_SEND_DATA: &'static mut [u8] = &mut [0; TACHYON_HEADER_SIZE];
 
+pub type OnConnectedCallback = unsafe extern "C" fn();
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 #[derive(Default)]
@@ -72,9 +75,9 @@ impl std::fmt::Display for TachyonStats {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct TachyonConfig {
-    pub use_identity: u8,
+    pub use_identity: u32,
     pub drop_packet_chance: u64,
-    pub drop_reliable_only: u8,
+    pub drop_reliable_only: u32,
     pub receive_window_size: u16
 }
 
@@ -121,7 +124,8 @@ pub struct Tachyon {
     pub stats: TachyonStats,
     pub start_time: Instant,
     pub last_identity_link_request: Instant,
-    pub identity: Identity
+    pub identity: Identity,
+    pub on_connected_callback: Option<OnConnectedCallback>
 }
 
 impl Tachyon {
@@ -146,8 +150,9 @@ impl Tachyon {
             resend_sequences: Vec::new(),
             stats: TachyonStats::default(),
             start_time: Instant::now(),
-            last_identity_link_request: Instant::now(),
-            identity: Identity::default()
+            last_identity_link_request: Instant::now() - Duration::new(100, 0),
+            identity: Identity::default(),
+            on_connected_callback: None
         };
         tachyon.channel_config.insert(1, true);
         tachyon.channel_config.insert(2, false);
@@ -387,6 +392,9 @@ impl Tachyon {
                     if self.config.use_identity == 1 {
                         if header.message_type == MESSAGE_TYPE_IDENTITY_LINKED {
                             self.identity.set_linked(1);
+                            if let Some(callback) = self.on_connected_callback {
+                                unsafe {callback();}
+                            }
                             return ReceiveResult::Empty;
                         } else if header.message_type == MESSAGE_TYPE_IDENTITY_UNLINKED {
                             self.identity.set_linked(0);

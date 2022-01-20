@@ -7,8 +7,8 @@ use super::{network_address::NetworkAddress};
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Connection {
-    pub id: u32,
     pub address: NetworkAddress,
+    pub identity: Identity,
     pub tachyon_id: u16,
     pub received_at: u64,
     pub since_last_received: u64
@@ -17,7 +17,7 @@ pub struct Connection {
 impl Connection {
     pub fn create(address: NetworkAddress, tachyon_id: u16) -> Self {
         let conn = Connection {
-            id: 0,
+            identity: Identity::default(),
             address: address,
             tachyon_id,
             received_at: 0,
@@ -25,6 +25,8 @@ impl Connection {
         };
         return conn;
     }
+
+  
 }
 
 #[derive(Clone, Copy)]
@@ -37,6 +39,7 @@ pub struct Identity {
 }
 
 impl Identity {
+    
     pub fn is_valid(&self) -> bool {
         return self.id > 0 && self.session_id > 0;
     }
