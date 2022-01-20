@@ -18,7 +18,7 @@ But you do need to be mindful of how this works, so that for every channel you h
 
 Tachyon's send buffers are currently hard coded to 1024, double the size of the receive window.  A downside of the nack model is send buffers have to be held on to, the sender never gets an acknowledgement for messages received by the recipient.  So to account for channels that have occasional large messages and nothing else, a timeout mechanism is also employed to expire messages that hang around too long.
 
-For high throughput the suggested approach is use more channels.  Every channel effectively doubles your receive window capacity.  How you split it up depends.  The basic way all reliable models work is your receive window has to be big enough to handle your volume.  Ie if you are sending 32 messages a frame, and your window is 32 messages, you have no reliablity. Window implementations work differently but the core idea is still the same.    
+For high throughput the suggested approach is use more channels.  Every channel effectively doubles your receive window capacity.  How you split it up depends.  The way all reliable models work is your receive window has to be big enough to handle your volume.  Ie if you are sending 32 messages a frame, and your window is 32 messages, you have no reliablity. Window implementations work differently but the core idea is still the same.  
 
 
 ## Channels
@@ -32,13 +32,10 @@ Fragments are individually reliable.  Each one is sent as a separate sequenced m
 ## Ordered vs Unordered
 The difference here is pretty simple and as you would expect.  Ordered messages are only delivered in order. Unordered are delivered as soon as they arrive.  Both are reliable.
 
-## Unreliable
-Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 1 byte. And received messages will also include the 1 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
-
 ## Connection management
 Connections are an awkward term to use with udp.  Because even though they aren't connected like TCP is, the udp api does have a notion of connection.  So defining connection as something more with application level features really just makes it all more confusing.
 
-So to make things clear Tachyon connections are just ip addresses that we know about, either ours or from messages received by the other side.  And then we add an Identity abstraction that can be linked to a connection.  An identity is an integer id and session id created by the application.  You tell Tachyon what they are, and you tell the client what they are out of band say via https.  If configured to use identities the client will automatically attempt to link it's identity after connect.  Regular messages will be dropped until the link is established.
+So to make things clear Tachyon connections mirror udp connections.  And then we add an Identity abstraction that can be linked to a connection.  An identity is an integer id and session id created by the application.  You set an id/session pair on the server, and you tell the client what they are out of band say via https.  If configured to use identities the client will automatically attempt to link it's identity after connect.  If the client ip changes it needs to request to be linked again.  The server when it links first removes any addresses previously linked.  With identities enabled regular messages are blocked on both ends until identity is established.
 
 
 ## Concurrency
@@ -53,6 +50,9 @@ First off if it's not obvious it's only needed server side.  You might want to a
 
 ## Performance
 Cpu time is mostly in udp syscalls. But very heavy packet loss can also increase cpu time because larger receive windows make Tachyon itself do more work as it has to iterate over those.
+
+## Unreliable
+Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 1 byte. And received messages will also include the 1 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
 
 ## Usage
 Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
