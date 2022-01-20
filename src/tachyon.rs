@@ -16,11 +16,12 @@ pub mod receive_result;
 pub mod pool;
 pub mod unreliable_sender;
 
+mod connection_impl;
+
 // additional stress/scale testing
 #[cfg(test)]
 pub mod tachyon_test;
 
-use std::collections::VecDeque;
 use std::time::Instant;
 
 use rustc_hash::FxHashMap;
@@ -46,6 +47,7 @@ pub const SEND_ERROR_SOCKET: u32 = 1;
 pub const SEND_ERROR_FRAGMENT: u32 = 3;
 pub const SEND_ERROR_UNKNOWN: u32 = 4;
 pub const SEND_ERROR_LENGTH: u32 = 5;
+pub const SEND_ERROR_IDENTITY: u32 = 6;
 
 pub static mut NONE_SEND_DATA: &'static mut [u8] = &mut [0; TACHYON_HEADER_SIZE];
 
@@ -70,6 +72,7 @@ impl std::fmt::Display for TachyonStats {
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct TachyonConfig {
+    pub use_identity: u8,
     pub drop_packet_chance: u64,
     pub drop_reliable_only: u8,
     pub receive_window_size: u16
@@ -78,6 +81,7 @@ pub struct TachyonConfig {
 impl  TachyonConfig {
     pub fn default() -> Self {
         let default = TachyonConfig {
+            use_identity: 0,
             drop_packet_chance: 0,
             drop_reliable_only: 0,
             receive_window_size: RECEIVE_WINDOW_SIZE_DEFAULT
@@ -107,6 +111,7 @@ pub struct Tachyon {
     pub id: u16,
     pub socket: TachyonSocket,
     pub unreliable_sender: Option<UnreliableSender>,
+    pub identities: FxHashMap<u32, u32>,
     pub connections: FxHashMap<NetworkAddress, Connection>,
     pub channels: FxHashMap<(NetworkAddress,u8),Channel>,
     pub channel_config: FxHashMap<u8, bool>,
@@ -114,7 +119,9 @@ pub struct Tachyon {
     pub nack_send_data: Vec<u8>,
     pub resend_sequences: Vec<u16>,
     pub stats: TachyonStats,
-    pub start_time: Instant
+    pub start_time: Instant,
+    pub last_identity_link_request: Instant,
+    pub identity: Identity
 }
 
 impl Tachyon {
@@ -128,6 +135,7 @@ impl Tachyon {
       
         let mut tachyon = Tachyon {
             id,
+            identities: FxHashMap::default(),
             connections: FxHashMap::default(),
             channels: FxHashMap::default(),
             channel_config: FxHashMap::default(),
@@ -137,7 +145,9 @@ impl Tachyon {
             nack_send_data: vec![0;4096],
             resend_sequences: Vec::new(),
             stats: TachyonStats::default(),
-            start_time: Instant::now()
+            start_time: Instant::now(),
+            last_identity_link_request: Instant::now(),
+            identity: Identity::default()
         };
         tachyon.channel_config.insert(1, true);
         tachyon.channel_config.insert(2, false);
@@ -195,46 +205,6 @@ impl Tachyon {
         return Some(sender);
     }
 
-    // this is run server side for receives.
-    fn on_receive_connection_update(&mut self, address: NetworkAddress) {
-        let since_start = self.time_since_start();
-        if let Some(conn) = self.connections.get_mut(&address) {
-            conn.received_at = since_start;
-        } else {
-            let mut conn = Connection::create(address, self.id);
-            conn.received_at = since_start;
-            self.connections.insert(address, conn);
-            self.create_configured_channels(address);
-        }
-    }
-
-    fn try_create_connection(&mut self, address: NetworkAddress) -> bool {
-        if !self.connections.contains_key(&address) {
-            let conn = Connection::create(address, self.id);
-            self.connections.insert(address, conn);
-            return true;
-        } else {
-            return false;
-        }
-    }
-
-    pub fn get_connections(&mut self, max: u16) -> Vec<Connection> {
-        let mut list: Vec<Connection> = Vec::new();
-        let result_count = std::cmp::min(self.connections.len(), max as usize);
-
-        let mut count = 0;
-        let since_start = self.time_since_start();
-        for conn in self.connections.values_mut() {
-            conn.since_last_received = since_start - conn.received_at;
-            list.push(*conn);
-            count += 1;
-            if count >= result_count {
-                break;
-            }
-        }
-        return list;
-    }
-
 
     pub fn get_channel(&mut self, address: NetworkAddress, channel_id: u8) -> Option<&mut Channel> {
         match self.channels.get_mut(&(address, channel_id)) {
@@ -260,6 +230,24 @@ impl Tachyon {
         }
     }
 
+    pub fn get_channel_count(&mut self, address: NetworkAddress) -> u32 {
+        let mut count = 0;
+        for config in &self.channel_config {
+            let channel_id = *config.0;
+            if self.channels.contains_key(&(address, channel_id)) {
+                count += 1;
+            }
+        }
+        return count;
+    }
+
+    fn remove_configured_channels(&mut self, address: NetworkAddress) {
+        for config in &self.channel_config {
+            let channel_id = *config.0;
+            self.channels.remove(&(address, channel_id));
+        }
+    }
+
     pub fn configure_channel(&mut self, channel_id: u8, ordered: bool) -> bool {
         if channel_id < 3 {
             return false;
@@ -281,6 +269,8 @@ impl Tachyon {
 
     
     pub fn update(&mut self) {
+        self.client_identity_update();
+
         for channel in self.channels.values_mut() {
             channel.frag.expire_groups();
             channel.receiver.publish();
@@ -363,16 +353,52 @@ impl Tachyon {
         
         let address: NetworkAddress;
         let received_len: usize;
-        
+        let header: Header;
+
         let socket_result = self.socket.receive(receive_buffer, self.config.drop_packet_chance, self.config.drop_reliable_only == 1);
         match socket_result {
             SocketReceiveResult::Success { bytes_received, network_address } => {
                 received_len = bytes_received;
                 address = network_address;
 
+                header = Header::read(receive_buffer);
+                
                 if self.socket.is_server {
-                    self.on_receive_connection_update(address);
+                    if self.config.use_identity == 1 {
+                        let connection_header: ConnectionHeader;
+
+                        if header.message_type == MESSAGE_TYPE_LINK_IDENTITY {
+                            connection_header = ConnectionHeader::read(receive_buffer);
+                            self.try_link_identity(address, connection_header.id, connection_header.session_id);
+                            return ReceiveResult::Empty;
+                        } else if header.message_type == MESSAGE_TYPE_UNLINK_IDENTITY {
+                            connection_header = ConnectionHeader::read(receive_buffer);
+                            self.try_unlink_identity(address,connection_header.id, connection_header.session_id);
+                            return ReceiveResult::Empty;
+                        } else {
+                            if !self.validate_and_update_linked_connection(address) {
+                                return ReceiveResult::Empty;
+                            }
+                        }
+                    } else {
+                        self.on_receive_connection_update(address);
+                    }
+                } else {
+                    if self.config.use_identity == 1 {
+                        if header.message_type == MESSAGE_TYPE_IDENTITY_LINKED {
+                            self.identity.set_linked(1);
+                            return ReceiveResult::Empty;
+                        } else if header.message_type == MESSAGE_TYPE_IDENTITY_UNLINKED {
+                            self.identity.set_linked(0);
+                            return ReceiveResult::Empty;
+                        }
+
+                        if !self.identity.is_linked() {
+                            return ReceiveResult::Empty;
+                        }
+                    }
                 }
+
             },
             SocketReceiveResult::Empty => {
                 return ReceiveResult::Empty;
@@ -386,7 +412,7 @@ impl Tachyon {
             },
         }
         
-        let header = Header::read(receive_buffer);
+        
        
         if header.message_type == MESSAGE_TYPE_UNRELIABLE {
             self.stats.unreliable_received += 1;
@@ -459,6 +485,12 @@ impl Tachyon {
 
     pub fn send_unreliable(&mut self, address: NetworkAddress, data:  &mut [u8], length: usize) -> TachyonSendResult {
 
+        if !self.can_send() {
+            let mut result = TachyonSendResult::default();
+            result.error = SEND_ERROR_IDENTITY;
+            return result;
+        }
+
         match &self.unreliable_sender {
             Some(sender) => {
                 let result = sender.send_unreliable(address, data, length);
@@ -474,13 +506,17 @@ impl Tachyon {
             },
         }
     }
-
     
     
     pub fn send_reliable(&mut self, channel_id: u8, address: NetworkAddress, data:  &mut [u8], length: usize) -> TachyonSendResult {
         
         let message_type = MESSAGE_TYPE_RELIABLE;
         let mut result = TachyonSendResult::default();
+
+        if !self.can_send() {
+            result.error = SEND_ERROR_IDENTITY;
+            return result;
+        }
 
         if length == 0 {
             result.error = SEND_ERROR_LENGTH;

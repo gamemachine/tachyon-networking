@@ -7,8 +7,45 @@ pub const MESSAGE_TYPE_FRAGMENT: u8 = 2;
 pub const MESSAGE_TYPE_NONE: u8 = 3;
 pub const MESSAGE_TYPE_RESEND: u8 = 4;
 
+pub const MESSAGE_TYPE_LINK_IDENTITY: u8 = 5;
+pub const MESSAGE_TYPE_UNLINK_IDENTITY: u8 = 6;
+
+pub const MESSAGE_TYPE_IDENTITY_LINKED: u8 = 7;
+pub const MESSAGE_TYPE_IDENTITY_UNLINKED: u8 = 8;
+
 pub const TACHYON_HEADER_SIZE: usize = 4;
 pub const TACHYON_FRAGMENTED_HEADER_SIZE: usize = 10;
+
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+#[derive(Default)]
+pub struct ConnectionHeader {
+    pub message_type: u8,
+    pub id: u32,
+    pub session_id: u32
+}
+
+impl ConnectionHeader {
+    pub fn read(buffer: &[u8]) -> Self {
+        let mut header = ConnectionHeader::default();
+        let mut reader = IntBuffer {index: 0};
+        
+        header.message_type = reader.read_u8(buffer);
+        header.id =reader.read_u32(buffer);
+        header.session_id = reader.read_u32(buffer);
+
+        return header;
+    }
+
+    pub fn write(&self, buffer: &mut [u8]) {
+        let mut writer = IntBuffer {index: 0};
+        
+        writer.write_u8(self.message_type as u8, buffer);
+        writer.write_u32(self.id, buffer);
+        writer.write_u32(self.session_id, buffer);
+    }
+}
 
 #[derive(Clone, Copy)]
 #[repr(C)]

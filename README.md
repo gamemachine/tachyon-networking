@@ -36,7 +36,9 @@ The difference here is pretty simple and as you would expect.  Ordered messages 
 Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 1 byte. And received messages will also include the 1 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
 
 ## Connection management
-This is best managed outside the library itself mostly, but I will be adding the ability to block by address early in the receive flow and hooks into that for extra logic people want there.  Not all games do this the same, and I don't want to bloat the core headers here.
+Connections are an awkward term to use with udp.  Because even though they aren't connected like TCP is, the udp api does have a notion of connection.  So defining connection as something more with application level features really just makes it all more confusing.
+
+So to make things clear Tachyon connections are just ip addresses that we know about, either ours or from messages received by the other side.  And then we add an Identity abstraction that can be linked to a connection.  An identity is an integer id and session id created by the application.  You tell Tachyon what they are, and you tell the client what they are out of band say via https.  If configured to use identities the client will automatically attempt to link it's identity after connect.  Regular messages will be dropped until the link is established.
 
 
 ## Concurrency
