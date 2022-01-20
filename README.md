@@ -64,6 +64,11 @@ Not much in the way of documentation yet but there are a good number of unit tes
 
 One important note is that update() has to be called regularly as that is where nacks are generated and sent.  In addition to some housekeeping and fragment expiration.  Sends/receives are all processed immediately there is no queuing of anything there.
 
+## Todo list
+Integrate the pooling so it's more seamless.  Mostly a matter of tweaking the public api a bit and a few more helper methods.  You shouldn't really have to think about the parallelism you just pick a level and go.
+
+There is a complete C# integration layer not yet pushed to github.  Should be coming soon.
+
 ### Basic usage.
 
 ```
