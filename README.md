@@ -59,15 +59,17 @@ Cpu time is mostly in udp syscalls. But very heavy packet loss can also increase
 ## Unreliable
 Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 1 byte. And received messages will also include the 1 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
 
-## Usage
-Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
-
-One important note is that update() has to be called regularly as that is where nacks are generated and sent.  In addition to some housekeeping and fragment expiration.  Sends/receives are all processed immediately there is no queuing of anything there.
 
 ## Todo list
 Integrate the pooling so it's more seamless.  Mostly a matter of tweaking the public api a bit and a few more helper methods.  You shouldn't really have to think about the parallelism you just pick a level and go.
 
 There is a complete C# integration layer not yet pushed to github.  Should be coming soon.
+
+
+## Usage
+Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
+
+One important note is that update() has to be called regularly as that is where nacks are generated and sent.  In addition to some housekeeping and fragment expiration.  Sends/receives are all processed immediately there is no queuing of anything there.
 
 ### Basic usage.
 
