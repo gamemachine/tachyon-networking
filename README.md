@@ -20,7 +20,7 @@ The design is that nack requests are always acknowledged. If the other side no l
 
 Nacks are only sent once per frame/update and use a variant of [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) for encoding nacks using bit flags.  The receive window is walked back to front and a nack message (6 bytes) created for every 33 sequence numbers.  Those nacks are then varint encoded in a single packet.
 
-Sending only once per frame is a weak point as these messages could themselves get lost, introducing latency.  So the plan is a hybrid approach where I'll add 2 bytes to message headers, and encode up to 16 nacks in every message in addition to the once per frame combined nacks which cover the entire window.  Statistically that should more then make up for any lost nack packets.
+Sending only once per frame is a weak point as these messages could themselves get lost, introducing latency.  So the plan is a hybrid approach where I'll add 2 bytes to message headers, and encode up to 16 nacks in every message in addition to the once per frame combined nacks which cover the entire window.  The idea being that those 16 nacks cover recently lost nack packets. 
 
 Most approaches that use an ack model and bit flags only support really small receive windows.  Send more then 33 messages per frame and you no longer have reliability.  That's why you always use that approach with a higher level messsage aggregation, so you are only sending say 1-4 packets per frame.  The alternative for ack models is to send acks as separate messages, and that gets prohibitively bandwidth heavy for games.
 
