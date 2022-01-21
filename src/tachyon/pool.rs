@@ -88,7 +88,6 @@ impl Pool {
             let res = server.receive_loop(receive_buffer);
             if res.length == 0 || res.error > 0 {
                 let elapsed = now.elapsed().as_millis();
-                println!("received {0} Elapsed: {1}", count, elapsed);
                 break;
             } else {
                 let mut message: Vec<u8> = vec![0;res.length as usize];
@@ -273,45 +272,5 @@ mod tests {
         println!("Elapsed: {:.2?}", elapsed);
         
     }
-
-   
-
-    #[test]
-    fn test_receive_in_thread() {
-        
-        let mut test = TachyonTest::create(NetworkAddress::localhost(8001));
-        test.connect();
-
-        let shared = Arc::new(Mutex::new(0));
-        
-        let mut server = test.server;
-        let lock = shared.clone();
-        rayon::spawn(move || {
-            match lock.try_lock() {
-                Ok(_res) => {
-                    println!("thread acquired");
-                    let mut temp:Vec<u8> = vec![0;4096];
-                    server.receive_from_socket(&mut temp);
-                    let ms = time::Duration::from_millis(500);
-                    thread::sleep(ms);
-                },
-                Err(_err) => {
-                    println!("thread failed");
-                },
-            }
-         });
-
-        let ms = time::Duration::from_millis(10);
-        thread::sleep(ms);
-         match shared.clone().try_lock() {
-            Ok(ok) => {
-                println!("main acquired");
-            },
-            Err(err) => {
-                println!("main failed");
-            },
-        }
-    }
-
 
 }

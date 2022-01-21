@@ -5,13 +5,6 @@ use crate::tachyon::*;
 
 use super::pool::Pool;
 
-
-
-#[no_mangle]
-pub extern "C" fn null_test() -> *mut Pool {
-    return std::ptr::null_mut();
-}
-
 #[no_mangle]
 pub extern "C" fn create_pool() -> *mut Pool {
     let pool = Pool::create();
@@ -49,9 +42,15 @@ pub extern "C" fn get_pool_server(pool_ptr: *mut Pool, id: u16) -> *mut Tachyon 
 
 
 #[no_mangle]
-pub extern "C" fn register_callbacks(tachyon_ptr: *mut Tachyon, on_connected: OnConnectedCallback) {
+pub extern "C" fn register_callbacks(tachyon_ptr: *mut Tachyon, on_connected: Option<OnConnectedCallback>) -> i32 {
     let tachyon = unsafe {&mut*tachyon_ptr};
-    tachyon.on_connected_callback = Some(on_connected);
+    if on_connected.is_some() {
+        tachyon.on_connected_callback = on_connected;
+        return 0;
+    } else {
+        return -1;
+    }
+    
 }
 
 #[no_mangle]
