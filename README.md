@@ -30,7 +30,7 @@ But you do need to be mindful of how this works, so that for every channel you h
 
 Tachyon's send buffers are currently hard coded to 1024, double the size of the receive window.  A downside of the nack model is send buffers have to be held on to, the sender never gets an acknowledgement for messages received by the recipient.  So to account for channels that have occasional large messages and nothing else, a timeout mechanism is also employed to expire messages that hang around too long.
 
-For high throughput the suggested approach is use more channels.  Every channel effectively doubles your receive window capacity.  How you split it up depends.  The way all reliable models work is your receive window has to be big enough to handle your volume.  Ie if you are sending 32 messages a frame, and your window is 32 messages, you have no reliablity. Window implementations work differently but the core idea is still the same.  
+For high throughput the suggested approach is use more channels.  Every channel effectively doubles your receive window capacity.
 
 
 ## Channels
