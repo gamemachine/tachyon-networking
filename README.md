@@ -12,25 +12,19 @@ Tachyon was specifically designed for a verticaly scaled environment with many c
 
 
 ## Reliablity
-Reliabilty is based on receive windows that have a configurable max size, with a default of 512.  The window is defined by the last in order sequence number received (current), to the last sequence number received.  If the difference between current and last exceeds the max, current is stepped forward by one. 
+Tachyon uses a different model then most due to needing to support high message volumes per frame.  There is a core trade off in reliability approaches where the more space efficient they are, the smaller the reliability window they can support.  A popular approach in games is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags, and adds that to every message.  But that means your receive window reliability is basically 33 length.  If you are sending 33 messages per frame, you no longer have reliability.
 
-Windows, send buffers, and sequences numbers are per channel not global. So a receive window of max 512 provides reliability for the last 512 messages for the specific channel.
+The nack model is one way to help with this while still using bit flags to keep bandwidth usage low..  Instead of having to ack every message, you only have to nack what is missing.  You get more bang for the buck out of the limited space available.
 
-The design is that nack requests are always acknowledged. If the other side no longer has the message buffered it responds with a NONE message. But it always responds. In practice it takes extremely high packet loss and/or latency to generate NONE messages. The send buffer is twice the size of the receive window, so you have to go back 1024 messages to get there.  For all effective purposes that's a dead connection.
+Tachyon's model here is still evolving somewhat.  We currently send a single nack packet per frame that encodes the entire receive window using Glen's approach. We just chain multiple sequence/bit flag pairs together to cover the entire 512 length window.  We further varint encode that so it's very space efficient. But these single nacks can themselves get lost, resulting in additional latency.
 
-Nacks are only sent once per frame/update and use a variant of [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) for encoding nacks using bit flags.  The receive window is walked back to front and a nack message (6 bytes) created for every 33 sequence numbers.  Those nacks are then varint encoded in a single packet.
+To combat that the design is to encode nacks in outgoing messages for the first N nacks, enough history to cover lost per frame nack packets.  This is still being implemented and tested and the exact approach might change a bit. So currently heavy packet loss will introduce some latency. 
 
-Sending only once per frame is a weak point as these messages could themselves get lost, introducing latency.  I could encode nacks in every message in addition to the once per frame packet that covers the entire window.  Which is an additional 4 bytes per message. Make that optional. Still looking at this to see if I can come up with something better.
+In the end what Tachyon gets from this is reliability over a much larger receive window. That makes it work well for IPC and also for larger fragmented messages.   
 
-Most approaches that use an ack model and bit flags only support really small receive windows.  Send more then 33 messages per frame and you no longer have reliability.  That's why you always use that approach with a higher level messsage aggregation, so you are only sending say 1-4 packets per frame.  The alternative for ack models is to send acks as separate messages, and that gets prohibitively bandwidth heavy for games.
+The flow is that if the sender gets a nack but no longer has the message buffered, it sends a NONE response.  But it always responds. The receive window starts at the last in order sequence number, and goes to the last sequence number received.  If the window reaches max size the start of the window is moved up by one.
 
-Nack models aren't widely used because they don't work well for the generic case.  The model relies on having a steady stream of messages to know what is missing. And that messages are not too large so send buffers chew up too much memory.  Games have the qualities needed to make the model work well.
-
-But you do need to be mindful of how this works, so that for every channel you have setup, you are sending messages regularly to keep the nack system moving.  A header + 1 sized message per frame is sufficient here, and big picture sending these keep alives are still far less bandwidth then a traditional ack model.
-
-Tachyon's send buffers are currently hard coded to 1024, double the size of the receive window.  A downside of the nack model is send buffers have to be held on to, the sender never gets an acknowledgement for messages received by the recipient.  So to account for channels that have occasional large messages and nothing else, a timeout mechanism is also employed to expire messages that hang around too long.
-
-For high throughput the suggested approach is use more channels.  Every channel effectively doubles your receive window capacity.
+Send buffers are twice the size of receive buffers.  One thing to keep in mind is that the nack models needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
 
 
 ## Channels
