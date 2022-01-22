@@ -308,8 +308,7 @@ impl Tachyon {
                     network_address: socket_addr,
                     channel_id,
                 } => {
-                    let published =
-                        self.receive_published_channel_id(receive_buffer, socket_addr, channel_id);
+                    let published = self.receive_published_channel_id(receive_buffer, socket_addr, channel_id);
                     if published > 0 {
                         result.channel = channel_id as u16;
                         result.length = published;
@@ -339,7 +338,6 @@ impl Tachyon {
                 }
             }
         }
-
         return self.receive_published_all_channels(receive_buffer);
     }
 

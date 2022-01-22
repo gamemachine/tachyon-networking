@@ -261,13 +261,13 @@ fn general_stress() {
     let client_address = NetworkAddress::default();
 
     let drop_reliable_only = 0;
-    let client_drop_chance = 10;
-    let server_drop_chance = 40;
-    let loop_count = 2000; // inner loop sends 4 messages
+    let client_drop_chance = 20;
+    let server_drop_chance = 20;
+    let loop_count = 4000; // inner loop sends 4 messages
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
-    let send_message_size = 384;
+    let send_message_size = 128;
 
     let mut send_buffer: Vec<u8> = vec![0; 4096];
     let mut receive_buffer: Vec<u8> = vec![0; 4096];
@@ -275,7 +275,7 @@ fn general_stress() {
     let mut config = TachyonConfig::default();
     config.drop_packet_chance = server_drop_chance;
     config.drop_reliable_only = drop_reliable_only;
-    config.nack_redundancy = 1;
+    config.nack_redundancy = 0;
 
     let mut server = Tachyon::create(config);
     server.bind(address);

@@ -137,6 +137,21 @@ impl Channel {
     }
 
     pub fn receive_published(&mut self, receive_buffer: &mut [u8]) -> (u32, NetworkAddress) {
+        for _ in 0..1000 {
+            let res = self.receive_published_internal(receive_buffer);
+            if res.0 > 0 {
+                return (res.0, res.1);
+            }
+            if !res.2 {
+                break;
+            }
+        }
+
+        return (0,self.address);
+    }
+
+    // returns message length, address, should retry (queue not empty)
+    fn receive_published_internal(&mut self, receive_buffer: &mut [u8]) -> (u32, NetworkAddress, bool) {
         match self.receiver.take_published() {
             Some(buffer) => {
                 let buffer_len = buffer.len();
@@ -145,7 +160,7 @@ impl Channel {
                 let message_type = reader.read_u8(&buffer);
 
                 if message_type == MESSAGE_TYPE_NONE {
-                    return (0, NetworkAddress::default());
+                    return (0, self.address, true);
                 }
 
                 if message_type == MESSAGE_TYPE_FRAGMENT {
@@ -157,10 +172,10 @@ impl Channel {
                             self.stats.received += 1;
                             self.stats.fragments_assembled += header.fragment_count as u64;
                             self.stats.published_consumed += 1;
-                            return (assembled_len as u32, self.address);
+                            return (assembled_len as u32, self.address, true);
                         }
                         Err(_) => {
-                            return (0, self.address);
+                            return (0, self.address, true);
                         }
                     }
                 }
@@ -172,17 +187,19 @@ impl Channel {
                     header_size = TACHYON_HEADER_SIZE;
                 } else {
                     // should not be possible
-                    return (0, NetworkAddress::default());
+                    return (0, self.address, true);
                 }
 
                 receive_buffer[0..buffer_len - header_size].copy_from_slice(&buffer[header_size..buffer_len]);
 
                 self.stats.published_consumed += 1;
-                return ((buffer_len - header_size) as u32, self.address);
+                return ((buffer_len - header_size) as u32, self.address, true);
             }
-            None => {}
+            None => {
+                return (0, self.address, false);
+            }
         }
-        return (0, NetworkAddress::default());
+        
     }
 
     pub fn process_fragment_message(&mut self, sequence: u16, receive_buffer: &mut [u8], received_len: usize) {
@@ -270,7 +287,9 @@ impl Channel {
     pub fn update(&mut self,socket: &TachyonSocket) {
         self.send_nacks(socket);
         self.resend_nacked(socket);
-        self.frag.expire_groups();
+
+        // this takes way too long if there are a lot of frag groups, disabling until I find a better solution
+        //self.frag.expire_groups();
         self.receiver.publish();
     }
 
