@@ -18,7 +18,7 @@ The nack model can optimistically cover a much larger window in 33 slots, becaus
 
 The receive window has a configurable max. It starts at the last in order sequence received, and runs to the last sequence received.  Once per frame we walk this window back to front and create nack messages each covering up to 33 slots.  And then pack those into a single network packet that is additionaly varint encoded.
 
-But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to TachyonConfig.nack_redunancy times per unique nack.  The idea here is nacks in outgoing messages will cover per frame combined nacks that were dropped recently.  And the per frame nacks provide the larger window coverage. The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.
+But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to TachyonConfig.nack_redundancy times per unique nack.  The idea here is nacks in outgoing messages will cover per frame combined nacks that were dropped recently.  And the per frame nacks provide the larger window coverage. The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.
 
 One thing to keep in mind is that the nack models needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
 
