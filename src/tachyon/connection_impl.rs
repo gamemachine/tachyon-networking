@@ -227,7 +227,6 @@ impl Tachyon {
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Duration, Instant};
 
     use crate::tachyon::{
         connection::Identity, network_address::NetworkAddress, tachyon_test::TachyonTest, Tachyon,
@@ -295,7 +294,6 @@ mod tests {
 
     #[test]
     fn test_can_send() {
-        let address = NetworkAddress::localhost(100);
 
         let mut config = TachyonConfig::default();
         config.use_identity = 1;

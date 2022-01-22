@@ -107,8 +107,6 @@ mod tests {
         let now = Instant::now() - Duration::new(6, 0);
         buffer.created_at = now;
 
-        let buffer = 0;
-
         assert!(buffers.buffers.is_some(sequence));
         buffers.expire();
         assert!(!buffers.buffers.is_some(sequence));

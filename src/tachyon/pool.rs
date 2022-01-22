@@ -1,8 +1,6 @@
 use std::{
     collections::VecDeque,
-    panic,
-    sync::{Arc, Mutex},
-    time::Instant,
+    sync::{Arc}
 };
 
 use crossbeam::queue::ArrayQueue;
@@ -94,25 +92,21 @@ impl Pool {
         receive_queue: &mut VecDeque<Vec<u8>>,
         receive_buffer: &mut Vec<u8>,
     ) {
-        let mut count = 0;
-        let now = Instant::now();
         for _ in 0..100000 {
             let res = server.receive_loop(receive_buffer);
             if res.length == 0 || res.error > 0 {
-                let elapsed = now.elapsed().as_millis();
                 break;
             } else {
                 let mut message: Vec<u8> = vec![0; res.length as usize];
                 message.copy_from_slice(&receive_buffer[0..res.length as usize]);
                 receive_queue.push_back(message);
 
-                count += 1;
             }
         }
     }
 
     pub fn receive_blocking(&mut self) {
-        self.servers.par_iter_mut().for_each(|(key, server)| {
+        self.servers.par_iter_mut().for_each(|(_key, server)| {
             let receive_queue_clone = self.receive_queue.clone();
             let receive_buffers_clone = self.receive_buffers.clone();
 
@@ -203,15 +197,10 @@ impl Pool {
 mod tests {
     use crate::tachyon::{
         network_address::NetworkAddress,
-        tachyon_test::{TachyonTest, TachyonTestClient},
-        Tachyon, TachyonConfig,
+        tachyon_test::{TachyonTestClient},
+        TachyonConfig,
     };
-    use core::time;
-    use crossbeam::queue::ArrayQueue;
-    use rayon::prelude::*;
     use std::{
-        sync::{Arc, Mutex},
-        thread,
         time::Instant,
     };
 

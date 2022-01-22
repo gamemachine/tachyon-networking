@@ -1,4 +1,3 @@
-use std::panic::catch_unwind;
 
 use crate::tachyon::*;
 
