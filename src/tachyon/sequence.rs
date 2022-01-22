@@ -1,16 +1,19 @@
+pub struct Sequence {}
 
-pub struct Sequence {
-
-}
-
-impl  Sequence {
+impl Sequence {
     pub fn is_greater_then(s1: u16, s2: u16) -> bool {
-        return ((s1 > s2) && (s1 - s2 <= 32768)) ||
-        ((s1 < s2) && (s2 - s1 > 32768));
+        return ((s1 > s2) && (s1 - s2 <= 32768)) || ((s1 < s2) && (s2 - s1 > 32768));
     }
 
     pub fn is_less_than(s1: u16, s2: u16) -> bool {
-        return Sequence::is_greater_then(s2, s1)
+        return Sequence::is_greater_then(s2, s1);
+    }
+
+    pub fn is_equal_to_or_less_than(s1: u16, s2: u16) -> bool {
+        if s1 == s2 {
+            return true;
+        }
+        return Sequence::is_greater_then(s2, s1);
     }
 
     pub fn next_sequence(sequence: u16) -> u16 {
@@ -30,13 +33,9 @@ impl  Sequence {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use crate::tachyon::sequence::Sequence;
-
-
-
 
     #[test]
     fn test_basic() {
@@ -48,8 +47,6 @@ mod tests {
         assert_eq!(65534, Sequence::previous_sequence(0));
         assert_eq!(0, Sequence::previous_sequence(1));
 
-        assert!(Sequence::is_greater_then(0,65534));
-        
+        assert!(Sequence::is_greater_then(0, 65534));
     }
-
 }

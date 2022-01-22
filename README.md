@@ -12,19 +12,15 @@ Tachyon was specifically designed for a verticaly scaled environment with many c
 
 
 ## Reliablity
-Tachyon uses a different model then most due to needing to support high message volumes per frame.  There is a core trade off in reliability approaches where the more space efficient they are, the smaller the reliability window they can support.  A popular approach in games is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags, and adds that to every message.  But that means your receive window reliability is basically 33 length.  If you are sending 33 messages per frame, you no longer have reliability.
+Tachyon uses a different model then most due to wanting to support higher message volumes and larger messages.  There is a core trade off in reliability approaches where the more space efficient they are, the smaller the reliability window they can support.  A popular approach in games is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags. The normal usage of it is to encode acks in every outgoing message.  But that means if you send 33 messages per frame, you used up the entire window in a single frame. It's designed to be used with higher level message aggregation, sending say 1-4 packets per frame or so.   
 
-The nack model is one way to help with this while still using bit flags to keep bandwidth usage low..  Instead of having to ack every message, you only have to nack what is missing.  You get more bang for the buck out of the limited space available.
+The nack model can optimistically cover a much larger window in 33 slots, because we are only covering missing packets.  Tachyon extends this further with a approach that can cover very large windows, the default is 512 slots per channel.
 
-Tachyon's model here is still evolving somewhat.  We currently send a single nack packet per frame that encodes the entire receive window using Glen's approach. We just chain multiple sequence/bit flag pairs together to cover the entire 512 length window.  We further varint encode that so it's very space efficient. But these single nacks can themselves get lost, resulting in additional latency.
+The receive window has a configurable max. It starts at the last in order sequence received, and runs to the last sequence received.  Once per frame we walk this window back to front and create nack messages each covering up to 33 slots.  And then pack those into a single network packet that is additionaly varint encoded.  But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to a TachyonConfig.nack_redunancy times per unique nack.  The idea here is nacks in outgoing messages will cover per frame combined nacks that were dropped recently.  And the per frame nacks provide the larger window coverage. The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.
 
-To combat that the design is to encode nacks in outgoing messages for the first N nacks, enough history to cover lost per frame nack packets.  This is still being implemented and tested and the exact approach might change a bit. So currently heavy packet loss will introduce some latency. 
+One thing to keep in mind is that the nack models needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
 
-In the end what Tachyon gets from this is reliability over a much larger receive window. That makes it work well for IPC and also for larger fragmented messages.   
-
-The flow is that if the sender gets a nack but no longer has the message buffered, it sends a NONE response.  But it always responds. The receive window starts at the last in order sequence number, and goes to the last sequence number received.  If the window reaches max size the start of the window is moved up by one.
-
-Send buffers are twice the size of receive buffers.  One thing to keep in mind is that the nack models needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
+We also have logic to expire messages that last too long in the send buffers. Like occasional large messages that have their own channel.  The send buffer is 1024, double the size of the default receive window. 
 
 
 ## Channels
@@ -67,7 +63,7 @@ There is a complete C# integration layer not yet pushed to github.  Should be co
 ## Usage
 Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
 
-One important note is that update() has to be called regularly as that is where nacks are generated and sent.  In addition to some housekeeping and fragment expiration.  Sends/receives are all processed immediately there is no queuing of anything there.
+update() has to be called once per frame.  That is where nacks and resends in response to nacks received are sent.  In addition to some housekeeping and fragment expiration.  Sends are processed immediately.
 
 ### Basic usage.
 

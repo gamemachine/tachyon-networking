@@ -1,4 +1,3 @@
-
 use std::time::Instant;
 
 use super::{sequence::Sequence, sequence_buffer::SequenceBuffer};
@@ -9,27 +8,26 @@ const EXPIRE: u128 = 5000;
 pub struct SendBuffer {
     pub sequence: u16,
     pub buffer: Vec<u8>,
-    pub created_at: Instant
+    pub created_at: Instant,
 }
 pub struct SendBufferManager {
     pub current_sequence: u16,
-    pub buffers: SequenceBuffer<SendBuffer>
+    pub buffers: SequenceBuffer<SendBuffer>,
 }
 
-impl  SendBufferManager {
+impl SendBufferManager {
     pub fn default() -> Self {
-
         let mut buffers: SequenceBuffer<SendBuffer> = SequenceBuffer {
             values: Vec::new(),
-            partition_by: SEND_BUFFER_SIZE
+            partition_by: SEND_BUFFER_SIZE,
         };
         for _ in 0..SEND_BUFFER_SIZE {
             buffers.values.push(None);
         }
-        
+
         let sender = SendBufferManager {
             current_sequence: 0,
-            buffers
+            buffers,
         };
         return sender;
     }
@@ -45,14 +43,14 @@ impl  SendBufferManager {
         return i + 1;
     }
 
-    pub fn get_send_buffer(&mut self, sequence: u16)-> Option<&mut SendBuffer> {
+    pub fn get_send_buffer(&mut self, sequence: u16) -> Option<&mut SendBuffer> {
         match self.buffers.get_mut(sequence) {
             Some(send_buffer) => {
                 return Some(send_buffer);
-            },
+            }
             None => {
                 return None;
-            },
+            }
         }
     }
 
@@ -74,34 +72,32 @@ impl  SendBufferManager {
     pub fn create_send_buffer(&mut self, length: usize) -> Option<&mut SendBuffer> {
         self.current_sequence = Sequence::next_sequence(self.current_sequence);
 
-        let data = vec![0;length as usize];
+        let data = vec![0; length as usize];
         let buffer = SendBuffer {
             sequence: self.current_sequence,
             buffer: data,
-            created_at: Instant::now()
+            created_at: Instant::now(),
         };
 
         self.buffers.insert(self.current_sequence, buffer);
-        
+
         match self.buffers.get_mut(self.current_sequence) {
             Some(buffer) => {
                 return Some(buffer);
-            },
+            }
             None => {
                 return None;
-            },
+            }
         }
     }
-
 }
 
 #[cfg(test)]
 mod tests {
-    use std::time::{Instant, Duration};
+    use std::time::{Duration, Instant};
 
     use super::SendBufferManager;
 
-    
     #[test]
     fn test_expire() {
         let mut buffers = SendBufferManager::default();
@@ -110,7 +106,7 @@ mod tests {
         let sequence = buffer.sequence;
         let now = Instant::now() - Duration::new(6, 0);
         buffer.created_at = now;
-        
+
         let buffer = 0;
 
         assert!(buffers.buffers.is_some(sequence));

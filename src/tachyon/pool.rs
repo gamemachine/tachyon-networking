@@ -1,12 +1,16 @@
-
-use std::{sync::{Arc, Mutex}, time::Instant, collections::VecDeque, panic};
+use std::{
+    collections::VecDeque,
+    panic,
+    sync::{Arc, Mutex},
+    time::Instant,
+};
 
 use crossbeam::queue::ArrayQueue;
 use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHashMap;
 use synchronoise::CountdownEvent;
 
-use super::{Tachyon, TachyonConfig, network_address::NetworkAddress};
+use super::{network_address::NetworkAddress, Tachyon, TachyonConfig};
 
 const MAX_SERVERS: usize = 3;
 
@@ -17,7 +21,7 @@ pub struct Pool {
     pub receive_buffers: Arc<ArrayQueue<Vec<u8>>>,
     pub published: VecDeque<Vec<u8>>,
     pub servers_in_use: Arc<ArrayQueue<Tachyon>>,
-    pub counter: Option<Arc<CountdownEvent>>
+    pub counter: Option<Arc<CountdownEvent>>,
 }
 
 impl Pool {
@@ -26,9 +30,9 @@ impl Pool {
         let queue: ArrayQueue<VecDeque<Vec<u8>>> = ArrayQueue::new(MAX_SERVERS);
         for _ in 0..MAX_SERVERS {
             queue.push(VecDeque::new());
-            receive_buffers.push(vec![0;1024 * 1024]);
+            receive_buffers.push(vec![0; 1024 * 1024]);
         }
-        let in_use:ArrayQueue<Tachyon> = ArrayQueue::new(MAX_SERVERS);
+        let in_use: ArrayQueue<Tachyon> = ArrayQueue::new(MAX_SERVERS);
 
         let pool = Pool {
             next_id: 0,
@@ -37,12 +41,16 @@ impl Pool {
             receive_buffers: Arc::new(receive_buffers),
             published: VecDeque::new(),
             servers_in_use: Arc::new(in_use),
-            counter: None
+            counter: None,
         };
         return pool;
     }
 
-    pub fn create_server(&mut self, config: TachyonConfig, address: NetworkAddress) -> Option<&mut Tachyon> {
+    pub fn create_server(
+        &mut self,
+        config: TachyonConfig,
+        address: NetworkAddress,
+    ) -> Option<&mut Tachyon> {
         let mut tachyon = Tachyon::create(config);
         match tachyon.bind(address) {
             true => {
@@ -50,15 +58,15 @@ impl Pool {
                 let id = self.next_id;
                 tachyon.id = id;
                 self.servers.insert(id, tachyon);
-                
+
                 return self.servers.get_mut(&id);
-            },
+            }
             false => {
                 return None;
-            },
+            }
         }
     }
-   
+
     pub fn get_server(&mut self, id: u16) -> Option<&mut Tachyon> {
         return self.servers.get_mut(&id);
     }
@@ -81,7 +89,11 @@ impl Pool {
         return count;
     }
 
-    fn receive_server(server: &mut Tachyon, receive_queue: &mut VecDeque<Vec<u8>>, receive_buffer: &mut Vec<u8>) {
+    fn receive_server(
+        server: &mut Tachyon,
+        receive_queue: &mut VecDeque<Vec<u8>>,
+        receive_buffer: &mut Vec<u8>,
+    ) {
         let mut count = 0;
         let now = Instant::now();
         for _ in 0..100000 {
@@ -90,7 +102,7 @@ impl Pool {
                 let elapsed = now.elapsed().as_millis();
                 break;
             } else {
-                let mut message: Vec<u8> = vec![0;res.length as usize];
+                let mut message: Vec<u8> = vec![0; res.length as usize];
                 message.copy_from_slice(&receive_buffer[0..res.length as usize]);
                 receive_queue.push_back(message);
 
@@ -100,14 +112,16 @@ impl Pool {
     }
 
     pub fn receive_blocking(&mut self) {
-        self.servers.par_iter_mut().for_each(|(key,server)|{
+        self.servers.par_iter_mut().for_each(|(key, server)| {
             let receive_queue_clone = self.receive_queue.clone();
             let receive_buffers_clone = self.receive_buffers.clone();
-            
+
             if let Some(mut receive_queue) = receive_queue_clone.pop() {
                 if let Some(mut receive_buffer) = receive_buffers_clone.pop() {
                     Pool::receive_server(server, &mut receive_queue, &mut receive_buffer);
-                    receive_buffers_clone.push(receive_buffer).unwrap_or_default();
+                    receive_buffers_clone
+                        .push(receive_buffer)
+                        .unwrap_or_default();
                 }
                 receive_queue_clone.push(receive_queue).unwrap_or_default();
             }
@@ -131,21 +145,20 @@ impl Pool {
                     }
                 }
                 self.counter = None;
-            },
-            None => {},
+            }
+            None => {}
         }
         return (server_count, message_count);
     }
-    
-    pub fn receive(&mut self) -> bool {
 
+    pub fn receive(&mut self) -> bool {
         let server_count = self.servers.len();
         if server_count == 0 {
             return false;
         }
 
         let counter = Arc::new(CountdownEvent::new(server_count));
-        
+
         let in_use = self.servers_in_use.clone();
         for s in self.servers.drain() {
             let server = s.1;
@@ -163,37 +176,47 @@ impl Pool {
                     Some(mut server) => {
                         if let Some(mut receive_queue) = receive_queue_clone.pop() {
                             if let Some(mut receive_buffer) = receive_buffers_clone.pop() {
-                                Pool::receive_server(&mut server, &mut receive_queue, &mut receive_buffer);
-                                receive_buffers_clone.push(receive_buffer).unwrap_or_default();
+                                Pool::receive_server(
+                                    &mut server,
+                                    &mut receive_queue,
+                                    &mut receive_buffer,
+                                );
+                                receive_buffers_clone
+                                    .push(receive_buffer)
+                                    .unwrap_or_default();
                             }
                             receive_queue_clone.push(receive_queue).unwrap_or_default();
                         }
                         in_use.push(server);
-                    },
-                    None => {
-    
-                    },
+                    }
+                    None => {}
                 }
                 signal.decrement().unwrap();
-             });
+            });
         }
         self.counter = Some(counter);
         return true;
     }
-
 }
-
 
 #[cfg(test)]
 mod tests {
+    use crate::tachyon::{
+        network_address::NetworkAddress,
+        tachyon_test::{TachyonTest, TachyonTestClient},
+        Tachyon, TachyonConfig,
+    };
     use core::time;
-    use std::{time::Instant, thread, sync::{Mutex, Arc}};
-    use crate::tachyon::{tachyon_test::{TachyonTest, TachyonTestClient}, network_address::NetworkAddress, Tachyon, TachyonConfig};
     use crossbeam::queue::ArrayQueue;
     use rayon::prelude::*;
+    use std::{
+        sync::{Arc, Mutex},
+        thread,
+        time::Instant,
+    };
 
     use super::Pool;
-    
+
     #[test]
     fn test_receive() {
         let mut pool = Pool::create();
@@ -238,7 +261,6 @@ mod tests {
 
         let elapsed = now.elapsed();
         println!("Elapsed: {:.2?}", elapsed);
-        
     }
 
     #[test]
@@ -270,7 +292,5 @@ mod tests {
 
         let elapsed = now.elapsed();
         println!("Elapsed: {:.2?}", elapsed);
-        
     }
-
 }

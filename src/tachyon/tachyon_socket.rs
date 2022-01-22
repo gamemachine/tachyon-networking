@@ -1,23 +1,31 @@
-use std::{net::{UdpSocket, SocketAddrV4, Ipv4Addr}, io, env::consts::OS};
+use std::{
+    io,
+    net::{Ipv4Addr, SocketAddrV4, UdpSocket},
+};
 
-use rand::{Rng, prelude::StdRng, SeedableRng};
-use rand::prelude::ThreadRng;
-use socket2::{Socket, Domain, Type};
+use rand::{prelude::StdRng, Rng, SeedableRng};
+use socket2::{Domain, Socket, Type};
 
-use super::{network_address::NetworkAddress, int_buffer::IntBuffer, header::{MESSAGE_TYPE_RELIABLE, Header}, sequence::Sequence};
-
+use super::{
+    header::{Header, MESSAGE_TYPE_RELIABLE},
+    int_buffer::IntBuffer,
+    network_address::NetworkAddress,
+    sequence::Sequence,
+};
 
 pub enum CreateConnectResult {
     Success,
-    Error
+    Error,
 }
 
 pub enum SocketReceiveResult {
-    Success {bytes_received: usize, network_address: NetworkAddress},
+    Success {
+        bytes_received: usize,
+        network_address: NetworkAddress,
+    },
     Empty,
     Error,
-    Dropped
-    
+    Dropped,
 }
 pub struct TachyonSocket {
     pub address: NetworkAddress,
@@ -25,11 +33,10 @@ pub struct TachyonSocket {
     pub socket: Option<UdpSocket>,
     pub rng: StdRng,
     pub test_mode: bool,
-    pub test_sequence: u16
+    pub test_sequence: u16,
 }
 
-impl  TachyonSocket {
-
+impl TachyonSocket {
     pub fn create() -> Self {
         let socket = TachyonSocket {
             address: NetworkAddress::default(),
@@ -37,7 +44,7 @@ impl  TachyonSocket {
             socket: None,
             rng: SeedableRng::seed_from_u64(32634),
             test_mode: false,
-            test_sequence: 0
+            test_sequence: 0,
         };
         return socket;
     }
@@ -46,10 +53,8 @@ impl  TachyonSocket {
         match &self.socket {
             Some(sock) => {
                 return Some(sock.try_clone().unwrap());
-            },
-            None => {
-                return None
-            },
+            }
+            None => return None,
         }
     }
 
@@ -70,10 +75,10 @@ impl  TachyonSocket {
                 self.is_server = true;
 
                 return CreateConnectResult::Success;
-            },
+            }
             Err(_) => {
                 return CreateConnectResult::Error;
-            },
+            }
         }
     }
 
@@ -81,13 +86,13 @@ impl  TachyonSocket {
         if self.socket.is_some() {
             return CreateConnectResult::Error;
         }
-        
+
         self.address = NetworkAddress::default();
         let sock_addr = SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0);
         let socket = Socket::new(Domain::IPV4, Type::DGRAM, None).unwrap();
 
         match socket.bind(&sock_addr.into()) {
-            Ok(()) =>  {
+            Ok(()) => {
                 socket.set_recv_buffer_size(8192 * 256).unwrap();
                 socket.set_nonblocking(true).unwrap();
                 let address = naddress.to_socket_addr();
@@ -97,31 +102,31 @@ impl  TachyonSocket {
                     Ok(()) => {
                         self.socket = Some(udp_socket);
                         return CreateConnectResult::Success;
-                    },
+                    }
                     Err(_) => {
                         return CreateConnectResult::Error;
-                    },
+                    }
                 }
-            },
-            Err(_) =>  {
+            }
+            Err(_) => {
                 return CreateConnectResult::Error;
-            },
+            }
         }
     }
 
-    fn should_drop(&mut self,data: &mut[u8], drop_chance: u64, drop_reliable_only: bool) -> bool {
+    fn should_drop(&mut self, data: &mut [u8], drop_chance: u64, drop_reliable_only: bool) -> bool {
         if drop_chance > 0 {
             let r = self.rng.gen_range(1..100);
             if r <= drop_chance {
                 let mut can_drop = true;
                 if drop_reliable_only {
-                    let mut reader = IntBuffer {index: 0};
+                    let mut reader = IntBuffer { index: 0 };
                     let message_type = reader.read_u8(data);
                     if message_type != MESSAGE_TYPE_RELIABLE {
                         can_drop = false;
                     }
                 }
-                
+
                 if can_drop {
                     return true;
                 }
@@ -130,8 +135,7 @@ impl  TachyonSocket {
         return false;
     }
 
-    pub fn receive(&mut self, data:  &mut[u8], drop_chance: u64, drop_reliable_only: bool) -> SocketReceiveResult {
-
+    pub fn receive(&mut self, data: &mut [u8], drop_chance: u64, drop_reliable_only: bool) -> SocketReceiveResult {
         if self.test_mode {
             let mut head = Header::default();
             head.message_type = MESSAGE_TYPE_RELIABLE;
@@ -139,70 +143,78 @@ impl  TachyonSocket {
             head.sequence = self.test_sequence;
             self.test_sequence = Sequence::next_sequence(self.test_sequence);
             head.write(data);
-            let socket_result = SocketReceiveResult::Success { bytes_received: 32, network_address: NetworkAddress::mock_client_address() };
+            let socket_result = SocketReceiveResult::Success {
+                bytes_received: 32,
+                network_address: NetworkAddress::mock_client_address(),
+            };
             return socket_result;
         }
 
         let socket = match &self.socket {
-            Some(v) =>{v},
+            Some(v) => v,
             None => {
                 return SocketReceiveResult::Error;
             }
         };
-        
+
         if self.is_server {
-            match  socket.recv_from(data) {
+            match socket.recv_from(data) {
                 Ok((bytes_received, src_addr)) => {
                     if self.should_drop(data, drop_chance, drop_reliable_only) {
                         return SocketReceiveResult::Dropped;
                     }
                     let address = NetworkAddress::from_socket_addr(src_addr);
-                    return SocketReceiveResult::Success { bytes_received, network_address: address };
-                },
+                    return SocketReceiveResult::Success {
+                        bytes_received,
+                        network_address: address,
+                    };
+                }
                 Err(_) => {
                     return SocketReceiveResult::Empty;
-                },
+                }
             }
         } else {
-            match  socket.recv(data) {
+            match socket.recv(data) {
                 Ok(size) => {
                     if self.should_drop(data, drop_chance, drop_reliable_only) {
                         return SocketReceiveResult::Dropped;
                     }
-                    return SocketReceiveResult::Success { bytes_received: size, network_address: NetworkAddress::default() };
-                },
+                    return SocketReceiveResult::Success {
+                        bytes_received: size,
+                        network_address: NetworkAddress::default(),
+                    };
+                }
                 Err(_) => {
                     return SocketReceiveResult::Empty;
-                },
+                }
             }
         }
     }
 
-    pub fn send_to(&self,address: NetworkAddress, data:  &[u8], length: usize) -> usize {
+    pub fn send_to(&self, address: NetworkAddress, data: &[u8], length: usize) -> usize {
         match &self.socket {
             Some(socket) => {
                 let slice = &data[0..length];
                 let socket_result: io::Result<usize>;
-                
+
                 if address.port == 0 {
                     socket_result = socket.send(slice);
                 } else {
                     socket_result = socket.send_to(slice, address.to_socket_addr());
                 }
-                
-                match socket_result  {
+
+                match socket_result {
                     Ok(size) => {
                         return size;
-                    },
+                    }
                     Err(_) => {
                         return 0;
-                    },
+                    }
                 }
-            },
+            }
             None => {
                 return 0;
             }
         }
     }
-
 }

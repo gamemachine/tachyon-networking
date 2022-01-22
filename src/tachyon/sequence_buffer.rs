@@ -1,11 +1,9 @@
-
 pub struct SequenceBuffer<T> {
     pub values: Vec<Option<T>>,
-    pub partition_by: u16
+    pub partition_by: u16,
 }
 
 impl<T> SequenceBuffer<T> {
-    
     pub fn sequence_to_index(&self, sequence: u16) -> usize {
         return (sequence % self.partition_by) as usize;
     }
@@ -40,10 +38,10 @@ impl<T> SequenceBuffer<T> {
             Some(value) => {
                 let value_ref = value.as_ref();
                 return value_ref;
-            },
+            }
             None => {
                 return None;
-            },
+            }
         }
     }
 
@@ -52,13 +50,12 @@ impl<T> SequenceBuffer<T> {
             Some(value) => {
                 let value_ref = value.as_ref();
                 return value_ref;
-            },
+            }
             None => {
                 return None;
-            },
+            }
         }
     }
-
 
     pub fn get_mut(&mut self, sequence: u16) -> Option<&mut T> {
         let index = self.sequence_to_index(sequence);
@@ -66,10 +63,10 @@ impl<T> SequenceBuffer<T> {
             Some(value) => {
                 let value_ref = value.as_mut();
                 return value_ref;
-            },
+            }
             None => {
                 return None;
-            },
+            }
         }
     }
 }
@@ -78,21 +75,16 @@ impl<T> SequenceBuffer<T> {
 mod tests {
     use crate::tachyon::sequence_buffer::SequenceBuffer;
 
-
-
     #[test]
     fn basic_test() {
-      
-        let data: Vec<u8> = vec![0;32];
+        let data: Vec<u8> = vec![0; 32];
         let mut buffer: SequenceBuffer<Vec<u8>> = SequenceBuffer {
             values: vec![None; 1024],
-            partition_by: 1024
+            partition_by: 1024,
         };
 
         buffer.insert(1, data);
         let option = buffer.get(1);
         assert!(option.is_some());
-
     }
-
 }
