@@ -20,8 +20,6 @@ The receive window has a configurable max. It starts at the last in order sequen
 
 But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to TachyonConfig.nack_redundancy times per unique nack.  The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.  
 
-Big picture the nack model is more efficient when things are going well and degrades to what a well optimized ack model looks like under heavier packet loss. The nack model flow is also simpler then an ack flow which is nice.  Scenarios like IPC it really shines, but I doubt most users will care about that use case.
-
 One thing to keep in mind is that the nack models needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
 
 We also have logic to expire messages that last too long in the send buffers. Like occasional large messages that have their own channel.  The send buffer is 1024, double the size of the default receive window.
