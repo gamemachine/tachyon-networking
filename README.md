@@ -12,17 +12,19 @@ Tachyon was specifically designed for a verticaly scaled environment with many c
 
 
 ## Reliablity
-Tachyon uses a different model then most due to wanting to support higher message volumes and larger messages.  There is a core trade off in reliability approaches where the more space efficient they are, the smaller the reliability window they can support.  A popular approach in games is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags. The normal usage of it is to encode acks in every outgoing message.  But that means if you send 33 messages per frame, you used up the entire window in a single frame. It's designed to be used with higher level message aggregation, sending say 1-4 packets per frame or so.   
+Reliability models vary a lot because there aren't any perfect solutions and context tends to matter a lot.  But a core technique that is used in a good number of them is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags. The normal usage of it is to encode acks in every outgoing message.  But that means if you send 33 messages per frame, you used up the entire window in a single frame. It's designed to be used with higher level message aggregation, sending say 1-4 packets per frame or so.
 
-The nack model can optimistically cover a much larger window in 33 slots, because we are only covering missing packets.  Tachyon extends this further with a approach that can cover very large windows, the default is 512 slots per channel.
+The nack model can optimistically cover a much larger window in 33 slots using that same technique, because we are only covering missing packets.  Tachyon extends this further with a approach that can cover very large windows, the default is 512 slots per channel.
 
-The receive window has a configurable max. It starts at the last in order sequence received, and runs to the last sequence received.  Once per frame we walk this window back to front and create nack messages each covering 33 slots.  And then pack those into a single varint encoded network packet.
+The receive window has a configurable max. It starts at the last in order sequence received, and runs to the last sequence received.  Once per frame we walk this window back to front and create a nack messages for every 33 slots.  And then pack those into a single varint encoded network packet and send it out.
 
-But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to TachyonConfig.nack_redundancy times per unique nack.  The idea here is nacks in outgoing messages will cover per frame combined nacks that were dropped recently.  And the per frame nacks provide the larger window coverage. The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.
+But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to TachyonConfig.nack_redundancy times per unique nack.  The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.  
+
+Big picture the nack model is more efficient when things are going well and degrades to what a well optimized ack model looks like under heavier packet loss. The nack model flow is also simpler then an ack flow which is nice.  Scenarios like IPC it really shines, but I doubt most users will care about that use case.
 
 One thing to keep in mind is that the nack models needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
 
-We also have logic to expire messages that last too long in the send buffers. Like occasional large messages that have their own channel.  The send buffer is 1024, double the size of the default receive window. 
+We also have logic to expire messages that last too long in the send buffers. Like occasional large messages that have their own channel.  The send buffer is 1024, double the size of the default receive window.
 
 
 ## Channels

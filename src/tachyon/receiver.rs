@@ -1,14 +1,14 @@
 
 use std::collections::VecDeque;
 
-use super::{nack::Nack, sequence::*, sequence_buffer::SequenceBuffer};
+use super::{nack::Nack, sequence::*, sequence_buffer::SequenceBuffer, channel::RECEIVE_WINDOW_SIZE_DEFAULT};
 
 const RECEIVE_BUFFER_SIZE: u16 = 1024;
-pub const RECEIVE_WINDOW_SIZE_DEFAULT: u16 = 512;
+
 
 pub struct Receiver {
     pub is_ordered: bool,
-    pub receive_window_size: u16,
+    pub receive_window_size: u32,
     pub last_sequence: u16,
     pub current_sequence: u16,
     pub buffered: SequenceBuffer<Vec<u8>>,
@@ -21,7 +21,7 @@ pub struct Receiver {
 }
 
 impl Receiver {
-    pub fn create(is_ordered: bool, receive_window_size: u16) -> Self {
+    pub fn create(is_ordered: bool, receive_window_size: u32) -> Self {
         let buffered: SequenceBuffer<Vec<u8>> = SequenceBuffer {
             values: vec![None; RECEIVE_BUFFER_SIZE as usize],
             partition_by: RECEIVE_BUFFER_SIZE,
@@ -69,7 +69,7 @@ impl Receiver {
             return current;
         }
     }
-    pub fn should_increment_current(current: u16, last: u16, receive_window_size: u16) -> bool {
+    pub fn should_increment_current(current: u16, last: u16, receive_window_size: u32) -> bool {
         if current == last {
             return false;
         }

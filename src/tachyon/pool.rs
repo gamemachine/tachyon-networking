@@ -27,8 +27,8 @@ impl Pool {
         let receive_buffers: ArrayQueue<Vec<u8>> = ArrayQueue::new(MAX_SERVERS);
         let queue: ArrayQueue<VecDeque<Vec<u8>>> = ArrayQueue::new(MAX_SERVERS);
         for _ in 0..MAX_SERVERS {
-            queue.push(VecDeque::new());
-            receive_buffers.push(vec![0; 1024 * 1024]);
+            queue.push(VecDeque::new()).unwrap_or(());
+            receive_buffers.push(vec![0; 1024 * 1024]).unwrap_or(());
         }
         let in_use: ArrayQueue<Tachyon> = ArrayQueue::new(MAX_SERVERS);
 
@@ -156,7 +156,7 @@ impl Pool {
         let in_use = self.servers_in_use.clone();
         for s in self.servers.drain() {
             let server = s.1;
-            in_use.push(server);
+            in_use.push(server).unwrap_or(());
         }
 
         for _ in 0..server_count {
@@ -181,7 +181,7 @@ impl Pool {
                             }
                             receive_queue_clone.push(receive_queue).unwrap_or_default();
                         }
-                        in_use.push(server);
+                        in_use.push(server).unwrap_or(());
                     }
                     None => {}
                 }
@@ -195,6 +195,8 @@ impl Pool {
 
 #[cfg(test)]
 mod tests {
+    use serial_test::serial;
+
     use crate::tachyon::{
         network_address::NetworkAddress,
         tachyon_test::{TachyonTestClient},
@@ -207,6 +209,7 @@ mod tests {
     use super::Pool;
 
     #[test]
+    #[serial]
     fn test_receive() {
         let mut pool = Pool::create();
         let config = TachyonConfig::default();
@@ -253,6 +256,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_blocking_receive() {
         let mut pool = Pool::create();
         let config = TachyonConfig::default();

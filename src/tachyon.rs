@@ -28,6 +28,12 @@ use rustc_hash::FxHashMap;
 
 use self::channel::*;
 use self::connection::*;
+use self::connection_impl::ConnectionEventCallback;
+use self::connection_impl::IDENTITY_LINKED_EVENT;
+use self::connection_impl::IDENTITY_UNLINKED_EVENT;
+use self::connection_impl::LINK_IDENTITY_EVENT;
+use self::connection_impl::IdentityEventCallback;
+use self::connection_impl::UNLINK_IDENTITY_EVENT;
 use self::fragmentation::*;
 use self::header::*;
 use self::network_address::NetworkAddress;
@@ -35,7 +41,6 @@ use self::receive_result::ReceiveResult;
 use self::receive_result::TachyonReceiveResult;
 use self::receive_result::RECEIVE_ERROR_CHANNEL;
 use self::receive_result::RECEIVE_ERROR_UNKNOWN;
-use self::receiver::RECEIVE_WINDOW_SIZE_DEFAULT;
 use self::tachyon_socket::*;
 use self::unreliable_sender::UnreliableSender;
 
@@ -46,9 +51,9 @@ pub const SEND_ERROR_UNKNOWN: u32 = 4;
 pub const SEND_ERROR_LENGTH: u32 = 5;
 pub const SEND_ERROR_IDENTITY: u32 = 6;
 
-const NACK_REDUNDANCY_DEFAULT: u32 = 1;
 
-pub type OnConnectedCallback = unsafe extern "C" fn();
+
+
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -78,9 +83,7 @@ impl std::fmt::Display for TachyonStats {
 pub struct TachyonConfig {
     pub use_identity: u32,
     pub drop_packet_chance: u64,
-    pub drop_reliable_only: u32,
-    pub receive_window_size: u16,
-    pub nack_redundancy: u32
+    pub drop_reliable_only: u32
 }
 
 impl TachyonConfig {
@@ -88,19 +91,9 @@ impl TachyonConfig {
         let default = TachyonConfig {
             use_identity: 0,
             drop_packet_chance: 0,
-            drop_reliable_only: 0,
-            receive_window_size: RECEIVE_WINDOW_SIZE_DEFAULT,
-            nack_redundancy: NACK_REDUNDANCY_DEFAULT
+            drop_reliable_only: 0
         };
         return default;
-    }
-
-    pub fn get_receive_window_size(&self) -> u16 {
-        if self.receive_window_size > 0 {
-            return self.receive_window_size;
-        } else {
-            return RECEIVE_WINDOW_SIZE_DEFAULT;
-        }
     }
 }
 
@@ -120,14 +113,15 @@ pub struct Tachyon {
     pub identities: FxHashMap<u32, u32>,
     pub connections: FxHashMap<NetworkAddress, Connection>,
     pub channels: FxHashMap<(NetworkAddress, u8), Channel>,
-    pub channel_config: FxHashMap<u8, bool>,
+    pub channel_config: FxHashMap<u8, ChannelConfig>,
     pub config: TachyonConfig,
     pub nack_send_data: Vec<u8>,
     pub stats: TachyonStats,
     pub start_time: Instant,
     pub last_identity_link_request: Instant,
     pub identity: Identity,
-    pub on_connected_callback: Option<OnConnectedCallback>,
+    pub identity_event_callback: Option<IdentityEventCallback>,
+    pub connection_event_callback: Option<ConnectionEventCallback>
 }
 
 impl Tachyon {
@@ -152,10 +146,12 @@ impl Tachyon {
             start_time: Instant::now(),
             last_identity_link_request: Instant::now() - Duration::new(100, 0),
             identity: Identity::default(),
-            on_connected_callback: None,
+            identity_event_callback: None,
+            connection_event_callback: None
         };
-        tachyon.channel_config.insert(1, true);
-        tachyon.channel_config.insert(2, false);
+
+        tachyon.channel_config.insert(1, ChannelConfig::default_ordered());
+        tachyon.channel_config.insert(2, ChannelConfig::default_unordered());
 
         return tachyon;
     }
@@ -213,14 +209,12 @@ impl Tachyon {
     }
 
     fn create_configured_channels(&mut self, address: NetworkAddress) {
-        for config in &self.channel_config {
-            let channel_id = *config.0;
-            let ordered = *config.1;
-            match self.channels.get_mut(&(address, channel_id)) {
+        for (channel_id,config) in &self.channel_config {
+            match self.channels.get_mut(&(address, *channel_id)) {
                 Some(_) => {}
                 None => {
-                    let channel = Channel::create(channel_id, ordered, address, self.config.get_receive_window_size(), self.config.nack_redundancy);
-                    self.channels.insert((address, channel_id), channel);
+                    let channel = Channel::create(*channel_id, address, *config);
+                    self.channels.insert((address, *channel_id), channel);
                 }
             }
         }
@@ -244,11 +238,11 @@ impl Tachyon {
         }
     }
 
-    pub fn configure_channel(&mut self, channel_id: u8, ordered: bool) -> bool {
+    pub fn configure_channel(&mut self, channel_id: u8, config: ChannelConfig) -> bool {
         if channel_id < 3 {
             return false;
         }
-        self.channel_config.insert(channel_id, ordered);
+        self.channel_config.insert(channel_id, config);
         return true;
     }
 
@@ -341,6 +335,7 @@ impl Tachyon {
         return self.receive_published_all_channels(receive_buffer);
     }
 
+    
     fn receive_from_socket(&mut self, receive_buffer: &mut [u8]) -> ReceiveResult {
         let address: NetworkAddress;
         let received_len: usize;
@@ -360,11 +355,15 @@ impl Tachyon {
 
                         if header.message_type == MESSAGE_TYPE_LINK_IDENTITY {
                             connection_header = ConnectionHeader::read(receive_buffer);
-                            self.try_link_identity(address, connection_header.id, connection_header.session_id);
+                            if self.try_link_identity(address, connection_header.id, connection_header.session_id) {
+                                self.fire_identity_event(LINK_IDENTITY_EVENT, address, connection_header.id, connection_header.session_id);
+                            }
                             return ReceiveResult::Empty;
                         } else if header.message_type == MESSAGE_TYPE_UNLINK_IDENTITY {
                             connection_header = ConnectionHeader::read(receive_buffer);
-                            self.try_unlink_identity(address, connection_header.id, connection_header.session_id);
+                            if self.try_unlink_identity(address, connection_header.id, connection_header.session_id) {
+                                self.fire_identity_event(UNLINK_IDENTITY_EVENT, address, connection_header.id, connection_header.session_id);
+                            }
                             return ReceiveResult::Empty;
                         } else {
                             if !self.validate_and_update_linked_connection(address) {
@@ -378,14 +377,12 @@ impl Tachyon {
                     if self.config.use_identity == 1 {
                         if header.message_type == MESSAGE_TYPE_IDENTITY_LINKED {
                             self.identity.set_linked(1);
-                            if let Some(callback) = self.on_connected_callback {
-                                unsafe {
-                                    callback();
-                                }
-                            }
+                            self.fire_identity_event(IDENTITY_LINKED_EVENT, address, 0, 0);
+                            
                             return ReceiveResult::Empty;
                         } else if header.message_type == MESSAGE_TYPE_IDENTITY_UNLINKED {
                             self.identity.set_linked(0);
+                            self.fire_identity_event(IDENTITY_UNLINKED_EVENT, address, 0, 0);
                             return ReceiveResult::Empty;
                         }
 
@@ -554,51 +551,6 @@ impl Tachyon {
         
         result = channel.send_reliable(address, data, body_len, &self.socket);
         return result;
-
-        // let nack_option = channel.receiver.nack_queue.pop_front();
-        // let header_size: usize;
-
-        // if nack_option.is_some() {
-        //     header_size = TACHYON_NACKED_HEADER_SIZE;
-            
-        // } else {
-        //     header_size = TACHYON_HEADER_SIZE;
-        // }
-        // let send_buffer_len = length + header_size;
-
-        // match channel.send_buffers.create_send_buffer(send_buffer_len) {
-        //     Some(send_buffer) => {
-        //         let sequence = send_buffer.sequence;
-        //         let buffer = &mut send_buffer.buffer;
-        //         buffer[header_size..length + header_size].copy_from_slice(&data[0..length]);
-
-        //         let mut header = Header::default();
-        //         header.message_type = message_type;
-        //         header.channel = channel.id;
-        //         header.sequence = sequence;
-
-        //         if let Some(nack) = nack_option {
-        //             header.start_sequence = nack.start_sequence;
-        //             header.flags = nack.flags;
-        //             channel.receiver.nack_queue.push_back(nack);
-        //         }
-                
-        //         header.write(buffer);
-
-        //         let sent_len = self.socket.send_to(address, &buffer, send_buffer_len);
-        //         result.sent_len = sent_len as u32;
-        //         result.header = header;
-
-        //         channel.stats.bytes_sent += sent_len as u64;
-        //         channel.stats.sent += 1;
-
-        //         return result;
-        //     }
-        //     None => {
-        //         result.error = SEND_ERROR_UNKNOWN;
-        //         return result;
-        //     }
-        // }
     }
 }
 
@@ -647,7 +599,8 @@ mod tests {
     #[serial]
     fn test_unconfigured_channel_fails() {
         let mut test = TachyonTest::default();
-        test.client.configure_channel(3, true);
+        let channel_config = ChannelConfig::default_ordered();
+        test.client.configure_channel(3, channel_config);
         test.connect();
 
         let sent = test.client_send_reliable(3, 2);
@@ -663,8 +616,9 @@ mod tests {
     #[serial]
     fn test_configured_channel() {
         let mut test = TachyonTest::default();
-        test.client.configure_channel(3, true);
-        test.server.configure_channel(3, true);
+        let channel_config = ChannelConfig::default_ordered();
+        test.client.configure_channel(3, channel_config);
+        test.server.configure_channel(3, channel_config);
         test.connect();
 
         let sent = test.client_send_reliable(3, 2);

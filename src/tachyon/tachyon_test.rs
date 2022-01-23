@@ -1,5 +1,7 @@
 use std::time::Instant;
 
+use serial_test::serial;
+
 use crate::tachyon::header::*;
 use crate::tachyon::receiver::*;
 use crate::tachyon::*;
@@ -210,56 +212,14 @@ fn send_receive(update: bool,send: bool,channel_id: u8, message_type: u8, client
     }
 }
 
-#[test]
-fn receive_unreliable_perf() {
-    let mut test = TachyonTest::default();
-    test.connect();
-
-    for _ in 0..40000 {
-        let _sent = test.client_send_unreliable(32);
-    }
-
-    let now = Instant::now();
-    for _ in 0..42000 {
-        let res = test.server_receive();
-        if res.length == 0 {
-            break;
-        }
-    }
-    let elapsed = now.elapsed();
-    println!("Elapsed: {:.2?}", elapsed);
-
-    print!("CombinedStats:{0}\n", test.server.get_combined_stats());
-}
 
 #[test]
-fn receive_perf() {
-    let mut test = TachyonTest::default();
-    test.connect();
-    test.server.socket.test_mode = true;
-
-    for _ in 0..40000 {
-        let _sent = test.client_send_reliable(1, 32);
-    }
-
-    let now = Instant::now();
-    for _ in 0..42000 {
-        let res = test.server_receive();
-        if res.length == 0 {
-            break;
-        }
-    }
-    let elapsed = now.elapsed();
-    println!("Elapsed: {:.2?}", elapsed);
-
-    print!("CombinedStats:{0}\n", test.server.get_combined_stats());
-}
-
-#[test]
+#[serial]
 fn general_stress() {
     let address = NetworkAddress::test_address();
     let client_address = NetworkAddress::default();
 
+    let buffer_size =  64 * 1024;
     let drop_reliable_only = 0;
     let client_drop_chance = 20;
     let server_drop_chance = 20;
@@ -267,15 +227,14 @@ fn general_stress() {
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
-    let send_message_size = 128;
+    let send_message_size = 384;
 
-    let mut send_buffer: Vec<u8> = vec![0; 4096];
-    let mut receive_buffer: Vec<u8> = vec![0; 4096];
+    let mut send_buffer: Vec<u8> = vec![0; buffer_size];
+    let mut receive_buffer: Vec<u8> = vec![0; buffer_size];
 
     let mut config = TachyonConfig::default();
     config.drop_packet_chance = server_drop_chance;
     config.drop_reliable_only = drop_reliable_only;
-    config.nack_redundancy = 0;
 
     let mut server = Tachyon::create(config);
     server.bind(address);
@@ -351,9 +310,11 @@ fn general_stress() {
 }
 
 #[test]
+#[serial]
 fn many_clients() {
     let address = NetworkAddress::test_address();
 
+    let client_count = 2000;
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
@@ -370,7 +331,7 @@ fn many_clients() {
 
     let mut clients: Vec<Tachyon> = Vec::new();
 
-    for _ in 0..2000 {
+    for _ in 0..client_count {
         let mut client = Tachyon::create(config);
         client.connect(address);
         clients.push(client);
@@ -378,28 +339,24 @@ fn many_clients() {
 
     for mut client in &mut clients {
         let mut client_remote = NetworkAddress::default();
-        for _ in 0..40 {
-            send_receive(
-                false,
-                true,
-                channel_id,
-                message_type,
-                &mut client,
-                &mut server,
-                &mut send_buffer,
-                &mut receive_buffer,
-                msize,
-                &mut client_remote,
-            );
+        for _ in 0..2 {
+            send_receive(false,true,channel_id, message_type, &mut client, &mut server,&mut send_buffer, &mut receive_buffer,msize, &mut client_remote);
         }
     }
 
     let now = Instant::now();
-    for _ in 0..100 {
+
+    for _ in 0..10000 {
         let _receive_result = server.receive_loop(&mut receive_buffer);
+        if _receive_result.length == 0 || _receive_result.error > 0 {
+            break;
+        }
+    }
+
+    for _ in 0..100 {
         server.update();
     }
     let elapsed = now.elapsed();
     println!("Elapsed: {:.2?}", elapsed);
-    print!("CombinedStats:{0}\n", server.get_combined_stats());
+    print!("Server CombinedStats:{0}\n", server.get_combined_stats());
 }

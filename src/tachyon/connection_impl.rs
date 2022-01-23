@@ -10,6 +10,17 @@ use super::Tachyon;
 
 const IDENTITY_SEND_INTERVAL: u128 = 300;
 
+pub const CONNECTION_ADDED_EVENT: u8 = 1;
+pub const CONNECTION_REMOVED_EVENT: u8 = 2;
+
+pub const LINK_IDENTITY_EVENT: u8 = 1;
+pub const UNLINK_IDENTITY_EVENT: u8 = 2;
+pub const IDENTITY_LINKED_EVENT: u8 = 3;
+pub const IDENTITY_UNLINKED_EVENT: u8 = 4;
+
+pub type ConnectionEventCallback = unsafe extern "C" fn(action: u8, address: NetworkAddress);
+pub type IdentityEventCallback = unsafe extern "C" fn(action: u8, address: NetworkAddress, id: u32, session_id: u32);
+
 impl Tachyon {
     // setting identity removes any associated connection
     pub fn set_identity(&mut self, id: u32, session_id: u32) {
@@ -26,6 +37,7 @@ impl Tachyon {
         if !self.connections.contains_key(&address) {
             let conn = Connection::create(address, self.id);
             self.connections.insert(address, conn);
+            self.fire_connection_event(CONNECTION_ADDED_EVENT, address);
             return true;
         } else {
             return false;
@@ -49,6 +61,22 @@ impl Tachyon {
         return list;
     }
 
+    pub fn fire_identity_event(&self, event_id: u8, address: NetworkAddress, id: u32, session_id: u32) {
+        if let Some(callback) = self.identity_event_callback {
+            unsafe {
+                callback(event_id, address, id, session_id);
+            }
+        }
+    }
+
+    pub fn fire_connection_event(&self, event_id: u8, address: NetworkAddress) {
+        if let Some(callback) = self.connection_event_callback {
+            unsafe {
+                callback(event_id, address);
+            }
+        }
+    }
+
     // run when use_identity is not set
     pub fn on_receive_connection_update(&mut self, address: NetworkAddress) {
         let since_start = self.time_since_start();
@@ -59,6 +87,7 @@ impl Tachyon {
             conn.received_at = since_start;
             self.connections.insert(address, conn);
             self.create_configured_channels(address);
+            self.fire_connection_event(CONNECTION_ADDED_EVENT, address);
         }
     }
 
@@ -93,6 +122,7 @@ impl Tachyon {
         for addr in addresses {
             self.connections.remove(&addr);
             self.remove_configured_channels(addr);
+            self.fire_connection_event(CONNECTION_REMOVED_EVENT, addr);
         }
     }
 
@@ -115,6 +145,7 @@ impl Tachyon {
                 linked: 0,
             };
             self.connections.insert(address, conn);
+            self.fire_connection_event(CONNECTION_ADDED_EVENT, address);
             self.create_configured_channels(address);
             self.send_identity_linked(address);
             return true;
@@ -122,12 +153,7 @@ impl Tachyon {
         return false;
     }
 
-    pub fn try_unlink_identity(
-        &mut self,
-        address: NetworkAddress,
-        id: u32,
-        session_id: u32,
-    ) -> bool {
+    pub fn try_unlink_identity(&mut self, address: NetworkAddress, id: u32, session_id: u32) -> bool {
         if let Some(current_session_id) = self.identities.get(&id) {
             if session_id != *current_session_id {
                 return false;
@@ -207,13 +233,7 @@ impl Tachyon {
         self.send_identity_message(MESSAGE_TYPE_IDENTITY_UNLINKED, 0, 0, address);
     }
 
-    fn send_identity_message(
-        &self,
-        message_type: u8,
-        id: u32,
-        session_id: u32,
-        address: NetworkAddress,
-    ) {
+    fn send_identity_message(&self, message_type: u8, id: u32, session_id: u32, address: NetworkAddress) {
         let mut header = ConnectionHeader::default();
         header.message_type = message_type;
         header.id = id;
@@ -227,6 +247,8 @@ impl Tachyon {
 
 #[cfg(test)]
 mod tests {
+
+    use serial_test::serial;
 
     use crate::tachyon::{
         connection::Identity, network_address::NetworkAddress, tachyon_test::TachyonTest, Tachyon,
@@ -308,6 +330,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_link_flow() {
         let mut test = TachyonTest::default();
         test.client.config.use_identity = 1;
@@ -338,6 +361,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_link_fail_flow() {
         let mut test = TachyonTest::default();
         test.client.config.use_identity = 1;

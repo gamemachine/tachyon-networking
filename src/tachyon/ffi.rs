@@ -47,16 +47,16 @@ pub extern "C" fn get_pool_server(pool_ptr: *mut Pool, id: u16) -> *mut Tachyon 
 }
 
 #[no_mangle]
-pub extern "C" fn register_callbacks(
-    tachyon_ptr: *mut Tachyon,
-    on_connected: Option<OnConnectedCallback>,
-) -> i32 {
+pub extern "C" fn register_callbacks(tachyon_ptr: *mut Tachyon, identity_event_callback: Option<IdentityEventCallback>,
+     connection_event_callback: Option<ConnectionEventCallback>) {
     let tachyon = unsafe { &mut *tachyon_ptr };
-    if on_connected.is_some() {
-        tachyon.on_connected_callback = on_connected;
-        return 0;
-    } else {
-        return -1;
+
+    if identity_event_callback.is_some() {
+        tachyon.identity_event_callback = identity_event_callback;
+    }
+
+    if connection_event_callback.is_some() {
+        tachyon.connection_event_callback = connection_event_callback;
     }
 }
 
@@ -99,9 +99,10 @@ pub extern "C" fn connect_socket(
 }
 
 #[no_mangle]
-pub extern "C" fn configure_channel(tachyon_ptr: *mut Tachyon, channel_id: u8, ordered: u8) -> i32 {
+pub extern "C" fn configure_channel(tachyon_ptr: *mut Tachyon, channel_id: u8, config_ptr: *const ChannelConfig) -> i32 {
     let tachyon = unsafe { &mut *tachyon_ptr };
-    let res = tachyon.configure_channel(channel_id, ordered == 1);
+    let channel_config = unsafe { &*config_ptr };
+    let res = tachyon.configure_channel(channel_id, *channel_config);
     if res {
         return 1;
     } else {

@@ -16,6 +16,8 @@ use super::{
 };
 
 pub static mut NONE_SEND_DATA: &'static mut [u8] = &mut [0; TACHYON_HEADER_SIZE];
+const NACK_REDUNDANCY_DEFAULT: u32 = 1;
+pub const RECEIVE_WINDOW_SIZE_DEFAULT: u32 = 512;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -88,6 +90,40 @@ nones_sent:{} nones_received:{} nones_accepted:{} skipped_sequences:{}\n\n",
     }
 }
 
+#[derive(Clone, Copy)]
+#[repr(C)]
+#[derive(Default)]
+pub struct ChannelConfig {
+    pub receive_window_size: u32,
+    pub nack_redundancy: u32,
+    pub ordered: u32
+}
+
+impl ChannelConfig {
+
+    pub fn default_ordered() -> Self {
+        let config = ChannelConfig {
+            ordered: 1,
+            receive_window_size: RECEIVE_WINDOW_SIZE_DEFAULT,
+            nack_redundancy: NACK_REDUNDANCY_DEFAULT
+        };
+        return config;
+    }
+
+    pub fn default_unordered() -> Self {
+        let config = ChannelConfig {
+            ordered: 0,
+            receive_window_size: RECEIVE_WINDOW_SIZE_DEFAULT,
+            nack_redundancy: NACK_REDUNDANCY_DEFAULT
+        };
+        return config;
+    }
+
+    pub fn is_ordered(&self) -> bool {
+        return self.ordered == 1;
+    }
+}
+
 pub struct Channel {
     pub id: u8,
     pub address: NetworkAddress,
@@ -99,23 +135,23 @@ pub struct Channel {
     nacked_sequences: Vec<u16>,
     nacked_sequence_map: FxHashMap<u16, NetworkAddress>,
     pub resend_rewrite_buffer: Vec<u8>,
-    nack_redundancy: u32
+    pub nack_redundancy: u32
 }
 
 impl Channel {
-    pub fn create(id: u8, ordered: bool, address: NetworkAddress, receive_window_size: u16, nack_redundancy: u32) -> Self {
+    pub fn create(id: u8, address: NetworkAddress, config: ChannelConfig) -> Self {
         let channel = Channel {
             id,
             address,
             frag: Fragmentation::default(),
             send_buffers: SendBufferManager::default(),
-            receiver: Receiver::create(ordered, receive_window_size),
+            receiver: Receiver::create(config.is_ordered(), config.receive_window_size),
             stats: ChannelStats::default(),
             nack_send_data: vec![0; 512],
             nacked_sequences: Vec::new(),
             nacked_sequence_map: FxHashMap::default(),
             resend_rewrite_buffer: vec![0;2048],
-            nack_redundancy
+            nack_redundancy: config.nack_redundancy
         };
         return channel;
     }
@@ -290,6 +326,7 @@ impl Channel {
 
         // this takes way too long if there are a lot of frag groups, disabling until I find a better solution
         //self.frag.expire_groups();
+
         self.receiver.publish();
     }
 
@@ -375,7 +412,7 @@ impl Channel {
 #[cfg(test)]
 mod tests {
 
-    use crate::tachyon::{header::{Header, MESSAGE_TYPE_RELIABLE_WITH_NACK,  MESSAGE_TYPE_RELIABLE}, network_address::NetworkAddress};
+    use crate::tachyon::{header::{Header, MESSAGE_TYPE_RELIABLE_WITH_NACK,  MESSAGE_TYPE_RELIABLE}, network_address::NetworkAddress, channel::ChannelConfig};
 
     use super::Channel;
 
@@ -383,7 +420,7 @@ mod tests {
     #[test]
     fn test_rewrite_nack_to_reliable() {
 
-        let mut channel = Channel::create(1, true, NetworkAddress::default(), 512,1);
+        let mut channel = Channel::create(1, NetworkAddress::default(), ChannelConfig::default_ordered());
         let mut send_buffer: Vec<u8> = vec![0;1200];
         let mut header = Header::default();
         header.message_type = MESSAGE_TYPE_RELIABLE_WITH_NACK;

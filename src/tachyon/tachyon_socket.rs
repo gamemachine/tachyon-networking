@@ -7,10 +7,9 @@ use rand::{prelude::StdRng, Rng, SeedableRng};
 use socket2::{Domain, Socket, Type};
 
 use super::{
-    header::{Header, MESSAGE_TYPE_RELIABLE},
+    header::{MESSAGE_TYPE_RELIABLE},
     int_buffer::IntBuffer,
-    network_address::NetworkAddress,
-    sequence::Sequence,
+    network_address::NetworkAddress
 };
 
 pub enum CreateConnectResult {
@@ -31,9 +30,7 @@ pub struct TachyonSocket {
     pub address: NetworkAddress,
     pub is_server: bool,
     pub socket: Option<UdpSocket>,
-    pub rng: StdRng,
-    pub test_mode: bool,
-    pub test_sequence: u16,
+    pub rng: StdRng
 }
 
 impl TachyonSocket {
@@ -42,9 +39,7 @@ impl TachyonSocket {
             address: NetworkAddress::default(),
             is_server: false,
             socket: None,
-            rng: SeedableRng::seed_from_u64(32634),
-            test_mode: false,
-            test_sequence: 0,
+            rng: SeedableRng::seed_from_u64(32634)
         };
         return socket;
     }
@@ -136,20 +131,6 @@ impl TachyonSocket {
     }
 
     pub fn receive(&mut self, data: &mut [u8], drop_chance: u64, drop_reliable_only: bool) -> SocketReceiveResult {
-        if self.test_mode {
-            let mut head = Header::default();
-            head.message_type = MESSAGE_TYPE_RELIABLE;
-            head.channel = 1;
-            head.sequence = self.test_sequence;
-            self.test_sequence = Sequence::next_sequence(self.test_sequence);
-            head.write(data);
-            let socket_result = SocketReceiveResult::Success {
-                bytes_received: 32,
-                network_address: NetworkAddress::mock_client_address(),
-            };
-            return socket_result;
-        }
-
         let socket = match &self.socket {
             Some(v) => v,
             None => {
