@@ -127,3 +127,10 @@ let res = pool.finish_receive();
 
 // or alternative call pool.receive_blocking() which doesn't need a finish_receive().
 ```
+
+## License
+
+Licensed under either of
+ * Apache License, Version 2.0 ([LICENSE-APACHE](docs/LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
+ * MIT license ([LICENSE-MIT](docs/LICENSE-MIT) or http://opensource.org/licenses/MIT)
+at your option.
