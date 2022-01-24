@@ -134,15 +134,14 @@ impl Fragmentation {
             match sender.create_send_buffer(fragment_len) {
                 Some(send_buffer) => {
                     let sequence = send_buffer.sequence;
-                    let buffer = &mut send_buffer.buffer;
                     if index == 0 {
                         start_sequence = sequence;
                     }
 
                     let fragment_header = Header::create_fragmented(sequence, channel, group, start_sequence, fragment_count);
-                    fragment_header.write_fragmented(buffer);
+                    fragment_header.write_fragmented(&mut send_buffer.byte_buffer.get_mut());
 
-                    buffer[TACHYON_FRAGMENTED_HEADER_SIZE..chunk_len + TACHYON_FRAGMENTED_HEADER_SIZE].copy_from_slice(chunk);
+                    send_buffer.byte_buffer.get_mut()[TACHYON_FRAGMENTED_HEADER_SIZE..chunk_len + TACHYON_FRAGMENTED_HEADER_SIZE].copy_from_slice(chunk);
                     fragments.push(sequence);
 
                     index += 1;
@@ -190,17 +189,17 @@ mod tests {
         let result = frag.create_fragments(&mut sender, 1, &data[..], data.len());
         assert_eq!(2, result.len());
         let buffer = sender.get_send_buffer(result[0]).unwrap();
-        assert_eq!(1210, buffer.buffer.len());
-        let header = Header::read_fragmented(&buffer.buffer[..]);
+        assert_eq!(1210, buffer.byte_buffer.length);
+        let header = Header::read_fragmented(&buffer.byte_buffer.get());
         assert_eq!(MESSAGE_TYPE_FRAGMENT, header.message_type);
         assert_eq!(1, header.sequence);
         assert_eq!(1, header.fragment_start_sequence);
         assert_eq!(2, header.fragment_count);
 
         let buffer = sender.get_send_buffer(result[1]).unwrap();
-        assert_eq!(210, buffer.buffer.len());
+        assert_eq!(210, buffer.byte_buffer.length);
 
-        let header = Header::read_fragmented(&buffer.buffer[..]);
+        let header = Header::read_fragmented(&buffer.byte_buffer.get());
         assert_eq!(MESSAGE_TYPE_FRAGMENT, header.message_type);
         assert_eq!(2, header.sequence);
     }
@@ -213,18 +212,18 @@ mod tests {
         let data: Vec<u8> = vec![3; 2500];
         let created = frag.create_fragments(&mut sender, 1, &data[..], data.len());
         let send_buffer = sender.get_send_buffer(created[0]).unwrap();
-        let complete = frag.receive_fragment(&send_buffer.buffer[..], send_buffer.buffer.len());
+        let complete = frag.receive_fragment(&send_buffer.byte_buffer.get(), send_buffer.byte_buffer.length);
         assert!(!complete.1);
 
         let send_buffer = sender.get_send_buffer(created[1]).unwrap();
-        let complete = frag.receive_fragment(&send_buffer.buffer[..], send_buffer.buffer.len());
+        let complete = frag.receive_fragment(&send_buffer.byte_buffer.get(), send_buffer.byte_buffer.length);
         assert!(!complete.1);
 
         let send_buffer = sender.get_send_buffer(created[2]).unwrap();
-        let complete = frag.receive_fragment(&send_buffer.buffer[..], send_buffer.buffer.len());
+        let complete = frag.receive_fragment(&send_buffer.byte_buffer.get(), send_buffer.byte_buffer.length);
         assert!(complete.1);
 
-        let header = Header::read_fragmented(&send_buffer.buffer[..]);
+        let header = Header::read_fragmented(&send_buffer.byte_buffer.get());
         let assembled = frag.assemble(header);
         assert!(assembled.is_ok());
         let assembled_data = assembled.unwrap();

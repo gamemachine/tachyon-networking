@@ -49,9 +49,6 @@ Concurrent sending is supported for unreliable but not reliable. For reliable se
 
 Parallel receiving does have additional overhead.  It allocates bytes for received messages and then finally pushes those all to a single consumer queue. The design is a concurrent queue of non concurrent queues. A Tachyon instance will do a concurrent dequeue of the normal queue, receive into that, and then enqueue that back onto the concurrent queue.  Batch level atomic ops nothing fine grained.  
 
-## Performance
-Cpu time is mostly in udp syscalls. But very heavy packet loss can also increase cpu time because larger receive windows make Tachyon itself do more work as it has to iterate over those.
-
 ## Unreliable
 Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 1 byte. And received messages will also include the 1 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
 
@@ -127,10 +124,3 @@ let res = pool.finish_receive();
 
 // or alternative call pool.receive_blocking() which doesn't need a finish_receive().
 ```
-
-## License
-
-Licensed under either of
- * Apache License, Version 2.0 ([LICENSE-APACHE](docs/LICENSE-APACHE) or http://www.apache.org/licenses/LICENSE-2.0)
- * MIT license ([LICENSE-MIT](docs/LICENSE-MIT) or http://opensource.org/licenses/MIT)
-at your option.

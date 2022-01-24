@@ -1,3 +1,5 @@
+use core::time;
+use std::thread;
 use std::time::Instant;
 
 use serial_test::serial;
@@ -219,11 +221,12 @@ fn general_stress() {
     let address = NetworkAddress::test_address();
     let client_address = NetworkAddress::default();
 
+    let sleep_in_loop = false;
     let buffer_size =  64 * 1024;
     let drop_reliable_only = 0;
-    let client_drop_chance = 20;
-    let server_drop_chance = 20;
-    let loop_count = 4000; // inner loop sends 4 messages
+    let client_drop_chance = 0;
+    let server_drop_chance = 0;
+    let loop_count = 200; // inner loop sends 4 messages
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
@@ -247,12 +250,16 @@ fn general_stress() {
 
     let mut client_remote = NetworkAddress::default();
     for _ in 0..loop_count {
-        send_receive(true,true,channel_id, message_type, &mut client, &mut server, &mut send_buffer, &mut receive_buffer, send_message_size, &mut client_remote);
+
+        if sleep_in_loop {
+            thread::sleep(time::Duration::from_millis(10));
+            send_receive(true,true,channel_id, message_type, &mut client, &mut server, &mut send_buffer, &mut receive_buffer, send_message_size, &mut client_remote);
+        } else {
+            send_receive(true,true,channel_id, message_type, &mut client, &mut server, &mut send_buffer, &mut receive_buffer, send_message_size, &mut client_remote);
+        }
         
-        // thread::sleep(time::Duration::from_millis(10));
-        //  for _ in 0..6 {
-        //      send_receive(true,true,channel_id, message_type, &mut client, &mut server, &mut send_buffer, &mut receive_buffer, send_message_size, &mut client_remote);
-        //  }
+        
+        
     }
 
     for _ in 0..200 {
@@ -314,12 +321,13 @@ fn general_stress() {
 fn many_clients() {
     let address = NetworkAddress::test_address();
 
-    let client_count = 2000;
+    let client_count = 200;
+    let loop_count = 4;
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
 
-    let msize = 32;
+    let msize = 384;
     let mut send_buffer: Vec<u8> = vec![0; 1024];
     let mut receive_buffer: Vec<u8> = vec![0; 4096];
 
@@ -339,7 +347,7 @@ fn many_clients() {
 
     for mut client in &mut clients {
         let mut client_remote = NetworkAddress::default();
-        for _ in 0..2 {
+        for _ in 0..loop_count {
             send_receive(false,true,channel_id, message_type, &mut client, &mut server,&mut send_buffer, &mut receive_buffer,msize, &mut client_remote);
         }
     }

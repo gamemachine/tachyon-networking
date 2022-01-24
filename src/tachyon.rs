@@ -14,6 +14,7 @@ pub mod sequence;
 pub mod sequence_buffer;
 pub mod tachyon_socket;
 pub mod unreliable_sender;
+pub mod buffer_pool;
 
 mod connection_impl;
 
@@ -422,11 +423,7 @@ impl Tachyon {
         channel.stats.bytes_received += received_len as u64;
 
         if header.message_type == MESSAGE_TYPE_NONE {
-            channel.stats.nones_received += 1;
-            if channel.receiver.receive_packet(header.sequence, receive_buffer, received_len)
-            {
-                channel.stats.nones_accepted += 1;
-            }
+            channel.process_none_message(header.sequence, receive_buffer, received_len);
             return ReceiveResult::Retry;
         }
 
@@ -440,8 +437,6 @@ impl Tachyon {
             return ReceiveResult::Retry;
         }
 
-        
-
         if header.message_type == MESSAGE_TYPE_RELIABLE || header.message_type == MESSAGE_TYPE_RELIABLE_WITH_NACK {
 
             if header.message_type == MESSAGE_TYPE_RELIABLE_WITH_NACK {
@@ -452,7 +447,7 @@ impl Tachyon {
                 channel.stats.received += 1;
                 return ReceiveResult::Reliable {
                     network_address: address,
-                    channel_id: header.channel,
+                    channel_id: channel.id,
                 };
             } else {
                 return ReceiveResult::Retry;
@@ -527,7 +522,7 @@ impl Tachyon {
             for seq in frag_sequences {
                 match channel.send_buffers.get_send_buffer(seq) {
                     Some(fragment) => {
-                        let sent =self.socket.send_to(address, &fragment.buffer, fragment.buffer.len());
+                        let sent =self.socket.send_to(address, &fragment.byte_buffer.get(), fragment.byte_buffer.length);
                         fragment_bytes_sent += sent;
 
                         channel.stats.bytes_sent += sent as u64;

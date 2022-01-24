@@ -8,9 +8,10 @@ impl<T> SequenceBuffer<T> {
         return (sequence % self.partition_by) as usize;
     }
 
-    pub fn insert(&mut self, sequence: u16, value: T) {
+    pub fn insert(&mut self, sequence: u16, value: T) -> Option<&mut T> {
         let index = self.sequence_to_index(sequence);
         self.values[index] = Some(value);
+        return self.values[index].as_mut();
     }
 
     pub fn remove(&mut self, sequence: u16) {

@@ -189,18 +189,19 @@ impl Channel {
     // returns message length, address, should retry (queue not empty)
     fn receive_published_internal(&mut self, receive_buffer: &mut [u8]) -> (u32, NetworkAddress, bool) {
         match self.receiver.take_published() {
-            Some(buffer) => {
-                let buffer_len = buffer.len();
+            Some(byte_buffer) => {
+                let buffer_len = byte_buffer.length;
 
                 let mut reader = IntBuffer { index: 0 };
-                let message_type = reader.read_u8(&buffer);
+                let message_type = reader.read_u8(&byte_buffer.get());
 
                 if message_type == MESSAGE_TYPE_NONE {
+                    self.receiver.return_buffer(byte_buffer);
                     return (0, self.address, true);
                 }
 
                 if message_type == MESSAGE_TYPE_FRAGMENT {
-                    let header = Header::read_fragmented(&buffer);
+                    let header = Header::read_fragmented(&byte_buffer.get());
                     match self.frag.assemble(header) {
                         Ok(res) => {
                             let assembled_len = res.len();
@@ -211,6 +212,7 @@ impl Channel {
                             return (assembled_len as u32, self.address, true);
                         }
                         Err(_) => {
+                            self.receiver.return_buffer(byte_buffer);
                             return (0, self.address, true);
                         }
                     }
@@ -226,7 +228,8 @@ impl Channel {
                     return (0, self.address, true);
                 }
 
-                receive_buffer[0..buffer_len - header_size].copy_from_slice(&buffer[header_size..buffer_len]);
+                receive_buffer[0..buffer_len - header_size].copy_from_slice(&byte_buffer.get()[header_size..buffer_len]);
+                self.receiver.return_buffer(byte_buffer);
 
                 self.stats.published_consumed += 1;
                 return ((buffer_len - header_size) as u32, self.address, true);
@@ -236,6 +239,14 @@ impl Channel {
             }
         }
         
+    }
+
+    pub fn process_none_message(&mut self, sequence: u16, receive_buffer: &mut [u8], received_len: usize) {
+        self.stats.nones_received += 1;
+        if self.receiver.receive_packet(sequence, receive_buffer, received_len)
+        {
+            self.stats.nones_accepted += 1;
+        }
     }
 
     pub fn process_fragment_message(&mut self, sequence: u16, receive_buffer: &mut [u8], received_len: usize) {
@@ -285,8 +296,7 @@ impl Channel {
         match self.send_buffers.create_send_buffer(send_buffer_len) {
             Some(send_buffer) => {
                 let sequence = send_buffer.sequence;
-                let buffer = &mut send_buffer.buffer;
-                buffer[header_len..body_len + header_len].copy_from_slice(&data[0..body_len]);
+                send_buffer.byte_buffer.get_mut()[header_len..body_len + header_len].copy_from_slice(&data[0..body_len]);
 
                 let mut header = Header::default();
                 header.channel = self.id;
@@ -302,9 +312,9 @@ impl Channel {
                     header.message_type = MESSAGE_TYPE_RELIABLE;
                 }
                 
-                header.write(buffer);
+                header.write(&mut send_buffer.byte_buffer.get_mut());
 
-                let sent_len = socket.send_to(address, &buffer, send_buffer_len);
+                let sent_len = socket.send_to(address, &send_buffer.byte_buffer.get(), send_buffer_len);
                 result.sent_len = sent_len as u32;
                 result.header = header;
 
@@ -352,15 +362,15 @@ impl Channel {
 
                     let mut reader = IntBuffer { index: 0 };
 
-                    let message_type = reader.read_u8(&send_buffer.buffer);
+                    let message_type = reader.read_u8(&send_buffer.byte_buffer.get());
 
                     // rewrite to MESSAGE_TYPE_RELIABLE.
                     if message_type == MESSAGE_TYPE_RELIABLE_WITH_NACK {
-                        let send_len = Channel::rewrite_reliable_nack_to_reliable(&mut self.resend_rewrite_buffer,&send_buffer.buffer);
+                        let send_len = Channel::rewrite_reliable_nack_to_reliable(&mut self.resend_rewrite_buffer,&send_buffer.byte_buffer.get());
                         
                         socket.send_to(*address, &self.resend_rewrite_buffer, send_len);
                     } else {
-                        socket.send_to(*address, &send_buffer.buffer, send_buffer.buffer.len());
+                        socket.send_to(*address, &send_buffer.byte_buffer.get(), send_buffer.byte_buffer.length);
                     }
                     
                     self.stats.resent += 1;

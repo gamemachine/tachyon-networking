@@ -1,7 +1,7 @@
 
 use std::collections::VecDeque;
 
-use super::{nack::Nack, sequence::*, sequence_buffer::SequenceBuffer, channel::RECEIVE_WINDOW_SIZE_DEFAULT};
+use super::{nack::Nack, sequence::*, sequence_buffer::SequenceBuffer, channel::RECEIVE_WINDOW_SIZE_DEFAULT, buffer_pool::{ByteBuffer, ByteBufferPool}};
 
 const RECEIVE_BUFFER_SIZE: u16 = 1024;
 
@@ -11,21 +11,25 @@ pub struct Receiver {
     pub receive_window_size: u32,
     pub last_sequence: u16,
     pub current_sequence: u16,
-    pub buffered: SequenceBuffer<Vec<u8>>,
-    pub published: VecDeque<Vec<u8>>,
+    pub buffered: SequenceBuffer<ByteBuffer>,
+    pub published: VecDeque<ByteBuffer>,
     pub received: SequenceBuffer<bool>,
     pub resend_list: Vec<u16>,
     pub nack_list: Vec<Nack>,
     pub nack_queue: VecDeque<Nack>,
     pub skipped_sequences: u64,
+    pub buffer_pool: ByteBufferPool
 }
 
 impl Receiver {
     pub fn create(is_ordered: bool, receive_window_size: u32) -> Self {
-        let buffered: SequenceBuffer<Vec<u8>> = SequenceBuffer {
-            values: vec![None; RECEIVE_BUFFER_SIZE as usize],
+        let mut buffered: SequenceBuffer<ByteBuffer> = SequenceBuffer {
+            values: Vec::new(),
             partition_by: RECEIVE_BUFFER_SIZE,
         };
+        for i in 0..RECEIVE_BUFFER_SIZE {
+            buffered.values.insert(i as usize, None);
+        }
 
         let received: SequenceBuffer<bool> = SequenceBuffer {
             values: vec![None; RECEIVE_BUFFER_SIZE as usize],
@@ -43,7 +47,8 @@ impl Receiver {
             resend_list: Vec::new(),
             nack_list: Vec::new(),
             skipped_sequences: 0,
-            nack_queue: VecDeque::new()
+            nack_queue: VecDeque::new(),
+            buffer_pool: ByteBufferPool::default()
         };
 
         return receiver;
@@ -86,7 +91,11 @@ impl Receiver {
         }
     }
 
-    pub fn take_published(&mut self) -> Option<Vec<u8>> {
+    pub fn return_buffer(&mut self, byte_buffer: ByteBuffer) {
+        self.buffer_pool.return_buffer(byte_buffer);
+    }
+    
+    pub fn take_published(&mut self) -> Option<ByteBuffer> {
         return self.published.pop_front();
     }
 
@@ -103,9 +112,9 @@ impl Receiver {
     }
 
     fn set_buffered(&mut self, sequence: u16, data: &[u8], length: usize) {
-        let mut buffer: Vec<u8> = vec![0; length];
-        buffer[..].copy_from_slice(&data[0..length]);
-        self.buffered.insert(sequence, buffer);
+        let mut byte_buffer = self.buffer_pool.get_buffer(length);
+        byte_buffer.get_mut()[0..length].copy_from_slice(&data[0..length]);
+        self.buffered.insert(sequence, byte_buffer);
     }
 
     // Note:  we use current sequence increments to mark previous as not received.
@@ -170,8 +179,8 @@ impl Receiver {
 
                 if self.is_buffered(seq) {
                     match self.buffered.take(seq) {
-                        Some(buffer) => {
-                            self.published.push_back(buffer);
+                        Some(byte_buffer) => {
+                            self.published.push_back(byte_buffer);
                         }
                         None => {}
                     }
@@ -433,10 +442,7 @@ mod tests {
                 panic!();
             }
             assert!(channel.take_published().is_some());
-            // if channel.take_published().is_none() {
-            //     print!("{0} {1} {2}\n", sequence, channel.current_sequence, channel.last_sequence);
-            //     panic!();
-            // }
+            
             sequence = Sequence::next_sequence(sequence);
         }
     }
