@@ -321,7 +321,7 @@ fn general_stress() {
 fn many_clients() {
     let address = NetworkAddress::test_address();
 
-    let client_count = 200;
+    let client_count = 100;
     let loop_count = 4;
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;

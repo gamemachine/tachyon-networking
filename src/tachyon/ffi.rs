@@ -183,12 +183,7 @@ pub extern "C" fn send_reliable_to(
 }
 
 #[no_mangle]
-pub extern "C" fn receive(
-    tachyon_ptr: *mut Tachyon,
-    data: *mut u8,
-    receive_buffer_len: u32,
-    ret: *mut TachyonReceiveResult,
-) {
+pub extern "C" fn receive(tachyon_ptr: *mut Tachyon, data: *mut u8, receive_buffer_len: u32, ret: *mut TachyonReceiveResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
     let slice = unsafe { std::slice::from_raw_parts_mut(data, receive_buffer_len as usize) };
     let result = tachyon.receive_loop(slice);
