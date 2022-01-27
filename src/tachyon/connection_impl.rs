@@ -44,6 +44,10 @@ impl Tachyon {
         }
     }
 
+    pub fn get_connection(&self, address: NetworkAddress) -> Option<&Connection> {
+        return self.connections.get(&address);
+    }
+
     pub fn get_connections(&mut self, max: u16) -> Vec<Connection> {
         let mut list: Vec<Connection> = Vec::new();
         let result_count = std::cmp::min(self.connections.len(), max as usize);

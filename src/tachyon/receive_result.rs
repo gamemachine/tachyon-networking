@@ -20,6 +20,7 @@ pub enum ReceiveResult {
 
 #[repr(C)]
 #[derive(Default)]
+#[derive(Clone, Copy)]
 pub struct TachyonReceiveResult {
     pub channel: u16,
     pub address: NetworkAddress,

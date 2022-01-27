@@ -1,51 +1,6 @@
 
 use crate::tachyon::*;
 
-use super::pool::Pool;
-
-#[no_mangle]
-pub extern "C" fn create_pool() -> *mut Pool {
-    let pool = Pool::create();
-    let b = Box::new(pool);
-    return Box::into_raw(b);
-}
-
-#[no_mangle]
-pub extern "C" fn destroy_pool(pool: *mut Pool) {
-    if !pool.is_null() {
-        let _b = unsafe { Box::from_raw(pool) };
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn create_pool_server(
-    pool_ptr: *mut Pool,
-    config_ptr: *const TachyonConfig,
-    naddress: *const NetworkAddress,
-) -> *mut Tachyon {
-    let pool = unsafe { &mut *pool_ptr };
-    let config: TachyonConfig = unsafe { std::ptr::read(config_ptr as *const _) };
-    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
-    match pool.create_server(config, address) {
-        Some(server) => {
-            return server;
-        }
-        None => return std::ptr::null_mut(),
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn get_pool_server(pool_ptr: *mut Pool, id: u16) -> *mut Tachyon {
-    let pool = unsafe { &mut *pool_ptr };
-
-    match pool.get_server(id) {
-        Some(server) => {
-            return server;
-        }
-        None => return std::ptr::null_mut(),
-    }
-}
-
 #[no_mangle]
 pub extern "C" fn register_callbacks(tachyon_ptr: *mut Tachyon, identity_event_callback: Option<IdentityEventCallback>,
      connection_event_callback: Option<ConnectionEventCallback>) {
@@ -150,13 +105,7 @@ pub extern "C" fn send_unreliable_to(
 }
 
 #[no_mangle]
-pub extern "C" fn send_reliable(
-    tachyon_ptr: *mut Tachyon,
-    channel: u8,
-    data: *mut u8,
-    length: i32,
-    ret: *mut TachyonSendResult,
-) {
+pub extern "C" fn send_reliable(tachyon_ptr: *mut Tachyon, channel: u8, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
     let address = NetworkAddress::default();
     let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
@@ -166,14 +115,7 @@ pub extern "C" fn send_reliable(
 }
 
 #[no_mangle]
-pub extern "C" fn send_reliable_to(
-    tachyon_ptr: *mut Tachyon,
-    channel: u8,
-    naddress: *const NetworkAddress,
-    data: *mut u8,
-    length: i32,
-    ret: *mut TachyonSendResult,
-) {
+pub extern "C" fn send_reliable_to(tachyon_ptr: *mut Tachyon, channel: u8, naddress: *const NetworkAddress, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
     let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
     let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
@@ -203,28 +145,18 @@ pub extern "C" fn tachyon_update(tachyon_ptr: *mut Tachyon) {
 }
 
 #[no_mangle]
-pub extern "C" fn get_connections(
-    tachyon_ptr: *mut Tachyon,
-    addresses: *mut Connection,
-    max: u16,
-) -> u16 {
+pub extern "C" fn tachyon_get_connection(tachyon_ptr: *mut Tachyon, naddress: *const NetworkAddress, connection: *mut Connection) {
     let tachyon = unsafe { &mut *tachyon_ptr };
-
-    let list = tachyon.get_connections(max);
-
-    unsafe {
-        std::ptr::copy_nonoverlapping(list.as_ptr(), addresses, list.len());
+    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
+    if let Some(conn) = tachyon.get_connection(address) {
+        unsafe {
+            (*connection) = *conn;
+        }
     }
-
-    return list.len() as u16;
 }
 
 #[no_mangle]
-pub extern "C" fn tachyon_get_config(
-    tachyon_ptr: *mut Tachyon,
-    config: *mut TachyonConfig,
-    identity: *mut Identity,
-) {
+pub extern "C" fn tachyon_get_config(tachyon_ptr: *mut Tachyon, config: *mut TachyonConfig, identity: *mut Identity) {
     let tachyon = unsafe { &mut *tachyon_ptr };
     unsafe {
         (*config) = tachyon.config;

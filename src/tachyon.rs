@@ -7,6 +7,7 @@ pub mod int_buffer;
 pub mod nack;
 pub mod network_address;
 pub mod pool;
+pub mod pool_ffi;
 pub mod receive_result;
 pub mod receiver;
 pub mod send_buffer_manager;
@@ -53,8 +54,8 @@ pub const SEND_ERROR_LENGTH: u32 = 5;
 pub const SEND_ERROR_IDENTITY: u32 = 6;
 
 
-
-
+const SOCKET_RECEIVE_BUFFER_LEN: usize = 1024 * 1024;
+const UNRELIABLE_SEND_BUFFER_LEN: usize = 1024 * 64;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -110,6 +111,7 @@ pub struct TachyonSendResult {
 pub struct Tachyon {
     pub id: u16,
     pub socket: TachyonSocket,
+    pub socket_receive_buffer: Vec<u8>,
     pub unreliable_sender: Option<UnreliableSender>,
     pub identities: FxHashMap<u32, u32>,
     pub connections: FxHashMap<NetworkAddress, Connection>,
@@ -140,6 +142,7 @@ impl Tachyon {
             channels: FxHashMap::default(),
             channel_config: FxHashMap::default(),
             socket: socket,
+            socket_receive_buffer: vec![0;SOCKET_RECEIVE_BUFFER_LEN],
             unreliable_sender: None,
             config,
             nack_send_data: vec![0; 4096],
@@ -194,7 +197,10 @@ impl Tachyon {
         if !socket.is_some() {
             return None;
         }
-        let sender = UnreliableSender { socket: socket };
+        let sender = UnreliableSender {
+             socket: socket,
+             send_buffer: vec![0;UNRELIABLE_SEND_BUFFER_LEN]
+        };
         return Some(sender);
     }
 
@@ -297,7 +303,7 @@ impl Tachyon {
         let mut result = TachyonReceiveResult::default();
 
         for _ in 0..100 {
-            let receive_result = self.receive_from_socket(receive_buffer);
+            let receive_result = self.receive_from_socket();
             match receive_result {
                 ReceiveResult::Reliable {
                     network_address: socket_addr,
@@ -315,7 +321,8 @@ impl Tachyon {
                     received_len,
                     network_address: socket_addr,
                 } => {
-                    result.length = received_len as u32;
+                    receive_buffer[0..received_len-1].copy_from_slice(&self.socket_receive_buffer[1..received_len]);
+                    result.length = (received_len - 1) as u32;
                     result.address = socket_addr;
                     return result;
                 }
@@ -337,31 +344,31 @@ impl Tachyon {
     }
 
     
-    fn receive_from_socket(&mut self, receive_buffer: &mut [u8]) -> ReceiveResult {
+    fn receive_from_socket(&mut self) -> ReceiveResult {
         let address: NetworkAddress;
         let received_len: usize;
         let header: Header;
 
-        let socket_result = self.socket.receive(receive_buffer,self.config.drop_packet_chance,self.config.drop_reliable_only == 1);
+        let socket_result = self.socket.receive(&mut self.socket_receive_buffer,self.config.drop_packet_chance,self.config.drop_reliable_only == 1);
         match socket_result {
             SocketReceiveResult::Success {bytes_received, network_address} => {
                 received_len = bytes_received;
                 address = network_address;
 
-                header = Header::read(receive_buffer);
+                header = Header::read(&self.socket_receive_buffer);
 
                 if self.socket.is_server {
                     if self.config.use_identity == 1 {
                         let connection_header: ConnectionHeader;
 
                         if header.message_type == MESSAGE_TYPE_LINK_IDENTITY {
-                            connection_header = ConnectionHeader::read(receive_buffer);
+                            connection_header = ConnectionHeader::read(&self.socket_receive_buffer);
                             if self.try_link_identity(address, connection_header.id, connection_header.session_id) {
                                 self.fire_identity_event(LINK_IDENTITY_EVENT, address, connection_header.id, connection_header.session_id);
                             }
                             return ReceiveResult::Empty;
                         } else if header.message_type == MESSAGE_TYPE_UNLINK_IDENTITY {
-                            connection_header = ConnectionHeader::read(receive_buffer);
+                            connection_header = ConnectionHeader::read(&self.socket_receive_buffer);
                             if self.try_unlink_identity(address, connection_header.id, connection_header.session_id) {
                                 self.fire_identity_event(UNLINK_IDENTITY_EVENT, address, connection_header.id, connection_header.session_id);
                             }
@@ -423,27 +430,27 @@ impl Tachyon {
         channel.stats.bytes_received += received_len as u64;
 
         if header.message_type == MESSAGE_TYPE_NONE {
-            channel.process_none_message(header.sequence, receive_buffer, received_len);
+            channel.process_none_message(header.sequence, &mut self.socket_receive_buffer, received_len);
             return ReceiveResult::Retry;
         }
 
         if header.message_type == MESSAGE_TYPE_NACK {
-            channel.process_nack_message(address, receive_buffer);
+            channel.process_nack_message(address, &mut self.socket_receive_buffer);
             return ReceiveResult::Retry;
         }
 
         if header.message_type == MESSAGE_TYPE_FRAGMENT {
-            channel.process_fragment_message(header.sequence, receive_buffer, received_len);
+            channel.process_fragment_message(header.sequence, &mut self.socket_receive_buffer, received_len);
             return ReceiveResult::Retry;
         }
 
         if header.message_type == MESSAGE_TYPE_RELIABLE || header.message_type == MESSAGE_TYPE_RELIABLE_WITH_NACK {
 
             if header.message_type == MESSAGE_TYPE_RELIABLE_WITH_NACK {
-                channel.process_single_nack(address, receive_buffer);
+                channel.process_single_nack(address, &mut self.socket_receive_buffer);
             }
 
-            if channel.receiver.receive_packet(header.sequence, receive_buffer, received_len) {
+            if channel.receiver.receive_packet(header.sequence, &self.socket_receive_buffer, received_len) {
                 channel.stats.received += 1;
                 return ReceiveResult::Reliable {
                     network_address: address,
@@ -457,16 +464,16 @@ impl Tachyon {
         return ReceiveResult::Error;
     }
 
-    pub fn send_unreliable(&mut self, address: NetworkAddress, data: &mut [u8], length: usize) -> TachyonSendResult {
+    pub fn send_unreliable(&mut self, address: NetworkAddress, data: &mut [u8], body_len: usize) -> TachyonSendResult {
         if !self.can_send() {
             let mut result = TachyonSendResult::default();
             result.error = SEND_ERROR_IDENTITY;
             return result;
         }
 
-        match &self.unreliable_sender {
+        match &mut self.unreliable_sender {
             Some(sender) => {
-                let result = sender.send_unreliable(address, data, length);
+                let result = sender.send_unreliable(address, data, body_len);
                 if result.error == 0 {
                     self.stats.unreliable_sent += 1;
                 }
@@ -640,16 +647,17 @@ mod tests {
         assert_eq!(0, res.length);
 
         test.receive_buffer[0] = 1;
+        test.send_buffer[0] = 3;
         test.send_buffer[1] = 4;
         test.send_buffer[2] = 5;
         test.send_buffer[3] = 6;
         let sent = test.client_send_unreliable(4);
         assert_eq!(0, sent.error);
-        assert_eq!(4, sent.sent_len as usize);
+        assert_eq!(5, sent.sent_len as usize);
 
         let res = test.server_receive();
         assert_eq!(4, res.length);
-        assert_eq!(0, test.receive_buffer[0]);
+        assert_eq!(3, test.receive_buffer[0]);
         assert_eq!(4, test.receive_buffer[1]);
         assert_eq!(5, test.receive_buffer[2]);
         assert_eq!(6, test.receive_buffer[3]);

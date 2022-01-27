@@ -12,13 +12,13 @@ Tachyon was specifically designed for a verticaly scaled environment with many c
 
 
 ## Reliablity
-Reliability models vary a lot because there aren't any perfect solutions and context tends to matter a lot.  But a core technique that is used in a good number of them is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags. The normal usage of it is to encode acks in every outgoing message.  But that means if you send 33 messages per frame, you used up the entire window in a single frame. It's designed to be used with higher level message aggregation, sending say 1-4 packets per frame or so.
+Reliability models vary a lot because there aren't any perfect solutions and context tends to matter a lot.  But a core technique that is used in a good number of them is [Glen Fiedler's approach](https://gafferongames.com/post/reliable_ordered_messages/) that encodes acks as bit flags. The most well known usage of it is to encode acks in every outgoing message.  But that means if you send 33 messages per frame, you used up the entire window in a single frame. It's designed to be used with higher level message aggregation, sending say 1-4 packets per frame or so.
 
-The nack model can optimistically cover a much larger window in 33 slots using that same technique, because we are only covering missing packets.  Tachyon extends this further with an approach that can cover very large windows, the default is 512 slots per channel.
+The nack model can optimistically cover a much larger window in 33 slots using that same technique, because we are only covering missing packets.  Tachyon extends this by chaining multiple 33 slot nack windows over a much larger receive window as needed, the default receive window being 512 slots.
 
 The receive window has a configurable max. It starts at the last in order sequence received, and runs to the last sequence received.  Once per frame we walk this window back to front and create a nack messages for every 33 slots.  And then pack those into a single varint encoded network packet and send it out.
 
-But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to ChannelConfig.nack_redundancy times per unique nack.  The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.  
+But that message itself could get dropped, introducing latency.  So we also support taking those same nacks and insert them into outgoing messages in a round robin fashion. Up to ChannelConfig.nack_redundancy times per unique nack.  The cost for redundancy is the outgoing message header size goes from 4 to 10 bytes.
 
 One thing to keep in mind is that the nack model needs a constant message flow in order to know what is missing.  So if you have channels with only occasional messages, you should send a header + 1 sized message regularly.  Tachyon should just add an internal message here that automatically sends on every channel if nothing else went out, but that's not in yet.
 
@@ -31,15 +31,20 @@ Sequencing is per channel. With every connected address (connection) having it's
 The system configures two channels automatically channel 1 being ordered and channel 2 unordered. And you can add more but they need to be added before bind/connect.  Because they are per address, on the server side we lazily create channels as we see receives from new addresses. 
 
 ## Fragmentation
-Fragments are individually reliable.  Each one is sent as a separate sequenced message.  So larger messages work fairly well, just not too large where you start chewing up too much of the receive window.
+Fragments are individually reliable.  Each one is sent as a separate sequenced message and tagged with a group id.  When the other side gets all of the fragments in the group 
+we re assemble the message and deliver it.  So larger messages work fairly well, just not too large where you start chewing up too much of the receive window.
 
 ## Ordered vs Unordered
-The difference here is pretty simple and as you would expect.  Ordered messages are only delivered in order. Unordered are delivered as soon as they arrive.  Both are reliable.
+Both ordered and unordered are reliable.
+
+Ordered messages are only delivered in order but there are exceptions. If we get a NONE from the other side we know it's gone, so we mark it as received unblocking other messages waiting on it.  If a message falls out of the receive window it's just no longer considered period.
+
+Unordered are delivered as soon as they arrive.
 
 ## Connection management
-Connections are an awkward term to use with udp.  Because even though they aren't connected like TCP is, the udp api does have a notion of connection.  So defining connection as something more with application level features really just makes it all more confusing.
+Tachyon connections mirror udp connections, the only identifying information is the ip address.
 
-So to make things clear Tachyon connections mirror udp connections.  And then we add an Identity abstraction that can be linked to a connection.  An identity is an integer id and session id created by the application.  You set an id/session pair on the server, and you tell the client what they are out of band say via https.  If configured to use identities the client will automatically attempt to link it's identity after connect.  If the client ip changes it needs to request to be linked again.  The server when it links first removes any addresses previously linked.  With identities enabled regular messages are blocked on both ends until identity is established.
+And then we add an Identity abstraction that can be linked to a connection.  An identity is an integer id and session id created by the application.  You set an id/session pair on the server, and you tell the client what they are out of band say via https.  If configured to use identities the client will automatically attempt to link it's identity after connect.  If the client ip changes it needs to request to be linked again.  The server when it links first removes any addresses previously linked.  With identities enabled regular messages are blocked on both ends until identity is established.
 
 
 ## Concurrency
@@ -48,9 +53,6 @@ The best concurrency is no concurrency. Tachyon is parallel but uses no concurre
 Concurrent sending is supported for unreliable but not reliable. For reliable sends you have to send from one thread at a time.  Udp sockets are atomic at the OS level, so unreliable is just a direct path to that. UnreliableSender is a struct that can be created for use in other threads. That is a rust thing it's not needed for actual thread safety it's just needed for Rust to know it's safe.
 
 Parallel receiving does have additional overhead.  It allocates bytes for received messages and then finally pushes those all to a single consumer queue. The design is a concurrent queue of non concurrent queues. A Tachyon instance will do a concurrent dequeue of the normal queue, receive into that, and then enqueue that back onto the concurrent queue.  Batch level atomic ops nothing fine grained.  
-
-## Unreliable
-Unreliable messages have a hot path where there is almost no processing done.  Reliable messages we have to buffer anyways, so sent/received messages you are just dealign with the body.  With unreliable you have to send a byte array that is the message plus 1 byte. And received messages will also include the 1 byte header. You don't touch the header and you can't mess it up because Tachyon will write it on send.  But you do have to reason about it.  The alternative is memcpy on send and receive.
 
 
 ## Todo list
@@ -63,6 +65,11 @@ There is a complete C# integration layer not yet pushed to github.  Should be co
 Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
 
 update() has to be called once per frame.  That is where nacks and resends in response to nacks received are sent.  In addition to some housekeeping and fragment expiration.  Sends are processed immediately.
+
+## Pool usage
+The pool api is getting better but the receive api's are still a WIP.  There are 3 versions two of them do heap allocations and a newer but more complex version
+that does not.  That version writes out received messages into a single out buffer per tachyon, with individual messages prefixed with length and ip address.  And then you read that out buffer using LengthPrefixed like a stream.  This extra work is primarily to avoid memory fragmention from unnecessary allocations.
+
 
 ### Basic usage.
 
