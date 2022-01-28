@@ -37,8 +37,7 @@ we re assemble the message and deliver it.  So larger messages work fairly well,
 ## Ordered vs Unordered
 Both ordered and unordered are reliable.
 
-Ordered messages are only delivered in order but there are exceptions. If we get a NONE from the other side we know it's gone, so we mark it as received unblocking other messages waiting on it.  If a message falls out of the receive window it's just no longer considered period.
-
+Ordered messages are only delivered in order.
 Unordered are delivered as soon as they arrive.
 
 ## Connection management
