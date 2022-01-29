@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use super::{sequence::Sequence, sequence_buffer::SequenceBuffer, buffer_pool::{ByteBuffer, ByteBufferPool, BYTE_BUFFER_SIZE_DEFAULT}};
+use super::{sequence::Sequence, sequence_buffer::SequenceBuffer, byte_buffer_pool::{ByteBuffer, ByteBufferPool, BYTE_BUFFER_SIZE_DEFAULT}};
 
 const SEND_BUFFER_SIZE: u16 = 1024;
 const EXPIRE: u128 = 5000;
@@ -115,7 +115,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
 
-    use crate::tachyon::buffer_pool::BYTE_BUFFER_SIZE_DEFAULT;
+    use crate::tachyon::byte_buffer_pool::BYTE_BUFFER_SIZE_DEFAULT;
 
     use super::SendBufferManager;
 

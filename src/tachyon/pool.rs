@@ -30,8 +30,6 @@ pub struct OutBuffer {
     pub count: u32
 }
 
-
-
 pub struct Pool {
     pub next_id: u16,
     pub max_servers: u8,
@@ -102,6 +100,8 @@ impl Pool {
             }
         }
     }
+
+    // TODO index these lookups.
 
     pub fn get_server_having_connection(&self, address: NetworkAddress) -> u16 {
         for (id,server) in &self.servers {

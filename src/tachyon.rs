@@ -15,7 +15,7 @@ pub mod sequence;
 pub mod sequence_buffer;
 pub mod tachyon_socket;
 pub mod unreliable_sender;
-pub mod buffer_pool;
+pub mod byte_buffer_pool;
 
 mod connection_impl;
 

@@ -1,7 +1,7 @@
 
 use std::collections::VecDeque;
 
-use super::{nack::Nack, sequence::*, sequence_buffer::SequenceBuffer, channel::RECEIVE_WINDOW_SIZE_DEFAULT, buffer_pool::{ByteBuffer, ByteBufferPool}};
+use super::{nack::Nack, sequence::*, sequence_buffer::SequenceBuffer, channel::RECEIVE_WINDOW_SIZE_DEFAULT, byte_buffer_pool::{ByteBuffer, ByteBufferPool}};
 
 const RECEIVE_BUFFER_SIZE: u16 = 1024;
 
