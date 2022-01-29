@@ -1,4 +1,6 @@
 
+use std::panic::catch_unwind;
+
 use crate::tachyon::*;
 
 #[no_mangle]
@@ -65,7 +67,7 @@ pub extern "C" fn configure_channel(tachyon_ptr: *mut Tachyon, channel_id: u8, c
     }
 }
 
-fn copy_send_result(from: TachyonSendResult, to: *mut TachyonSendResult) {
+pub fn copy_send_result(from: TachyonSendResult, to: *mut TachyonSendResult) {
     unsafe {
         (*to).sent_len = from.sent_len;
         (*to).error = from.error;
@@ -74,43 +76,12 @@ fn copy_send_result(from: TachyonSendResult, to: *mut TachyonSendResult) {
 }
 
 #[no_mangle]
-pub extern "C" fn send_unreliable(
-    tachyon_ptr: *mut Tachyon,
-    data: *mut u8,
-    length: i32,
-    ret: *mut TachyonSendResult,
-) {
-    let tachyon = unsafe { &mut *tachyon_ptr };
-    let address = NetworkAddress::default();
-    let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
-
-    let result = tachyon.send_unreliable(address, slice, length as usize);
-    copy_send_result(result, ret);
-}
-
-#[no_mangle]
-pub extern "C" fn send_unreliable_to(
-    tachyon_ptr: *mut Tachyon,
-    naddress: *const NetworkAddress,
-    data: *mut u8,
-    length: i32,
-    ret: *mut TachyonSendResult,
-) {
+pub extern "C" fn send_unreliable_to(tachyon_ptr: *mut Tachyon, naddress: *const NetworkAddress, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
     let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
     let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
 
     let result = tachyon.send_unreliable(address, slice, length as usize);
-    copy_send_result(result, ret);
-}
-
-#[no_mangle]
-pub extern "C" fn send_reliable(tachyon_ptr: *mut Tachyon, channel: u8, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
-    let tachyon = unsafe { &mut *tachyon_ptr };
-    let address = NetworkAddress::default();
-    let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
-
-    let result = tachyon.send_reliable(channel, address, slice, length as usize);
     copy_send_result(result, ret);
 }
 
@@ -153,6 +124,32 @@ pub extern "C" fn tachyon_get_connection(tachyon_ptr: *mut Tachyon, naddress: *c
             (*connection) = *conn;
         }
     }
+}
+
+#[no_mangle]
+pub extern "C" fn tachyon_get_connection_by_identity(tachyon_ptr: *mut Tachyon, id: u32, connection: *mut Connection) {
+    let tachyon = unsafe { &mut *tachyon_ptr };
+    if let Some(conn) = tachyon.get_connection_by_identity(id) {
+        unsafe {
+            (*connection) = *conn;
+        }
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn get_connections(tachyon_ptr: *mut Tachyon, connections: *mut Connection, max: i32) -> i32 {
+    let tachyon = unsafe {&mut*tachyon_ptr};
+    let list = tachyon.get_connections(max);
+    
+    if list.len() > 0 {
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(list.as_ptr(), connections, list.len());
+        }
+    }
+    
+    
+    return list.len() as i32;
 }
 
 #[no_mangle]

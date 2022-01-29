@@ -8,7 +8,7 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHashMap;
 use synchronoise::CountdownEvent;
 
-use super::{network_address::NetworkAddress, Tachyon, TachyonConfig, int_buffer::{LengthPrefixed}};
+use super::{network_address::NetworkAddress, Tachyon, TachyonConfig, int_buffer::LengthPrefixed, connection::Connection};
 
 #[derive(Default, Clone, Copy)]
 #[repr(C)]
@@ -83,7 +83,7 @@ impl Pool {
 
     pub fn create_server(&mut self, config: TachyonConfig, address: NetworkAddress) -> Option<&mut Tachyon> {
 
-        if self.servers.len() >= self.max_servers.into() {
+        if self.servers.len() > self.max_servers.into() {
             return None;
         }
         
@@ -101,6 +101,24 @@ impl Pool {
                 return None;
             }
         }
+    }
+
+    pub fn get_server_having_connection(&self, address: NetworkAddress) -> u16 {
+        for (id,server) in &self.servers {
+            if server.connections.contains_key(&address) {
+                return *id;
+            }
+        }
+        return 0;
+    }
+
+    pub fn get_server_having_identity(&self, identity_id: u32) -> u16 {
+        for (id,server) in &self.servers {
+            if server.identity_to_address_map.contains_key(&identity_id) {
+                return *id;
+            }
+        }
+        return 0;
     }
 
     pub fn get_available_server(&self) -> Option<PoolServerRef> {
@@ -365,7 +383,7 @@ mod tests {
 
         let mut reader = LengthPrefixed::default();
         for _ in 0..res.count {
-            let (address,range) = reader.read(&receive_buffer);
+            let (_address,range) = reader.read(&receive_buffer);
             let len = range.end - range.start;
             //println!("len:{0} address:{1}", len, address);
 

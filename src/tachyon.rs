@@ -115,6 +115,7 @@ pub struct Tachyon {
     pub unreliable_sender: Option<UnreliableSender>,
     pub identities: FxHashMap<u32, u32>,
     pub connections: FxHashMap<NetworkAddress, Connection>,
+    pub identity_to_address_map: FxHashMap<u32, NetworkAddress>,
     pub channels: FxHashMap<(NetworkAddress, u8), Channel>,
     pub channel_config: FxHashMap<u8, ChannelConfig>,
     pub config: TachyonConfig,
@@ -139,6 +140,7 @@ impl Tachyon {
             id,
             identities: FxHashMap::default(),
             connections: FxHashMap::default(),
+            identity_to_address_map: FxHashMap::default(),
             channels: FxHashMap::default(),
             channel_config: FxHashMap::default(),
             socket: socket,
@@ -181,8 +183,7 @@ impl Tachyon {
         match self.socket.connect_socket(address) {
             CreateConnectResult::Success => {
                 let local_address = NetworkAddress::default();
-                self.try_create_connection(local_address);
-                self.create_configured_channels(local_address);
+                self.create_connection(local_address, Identity::default());
                 self.unreliable_sender = self.create_unreliable_sender();
                 return true;
             }
