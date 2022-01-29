@@ -54,6 +54,7 @@ Concurrent sending is supported for unreliable but not reliable. For reliable se
 Parallel receiving uses batching concurrency.  We use a concurrent queue of non concurrent queues to limit fine grained concurrency to just a couple of ops per server.
 
 
+
 ## Todo list
 Integrate the pooling so it's more seamless.  Mostly a matter of tweaking the public api a bit and a few more helper methods.  You shouldn't really have to think about the parallelism you just pick a level and go.
 

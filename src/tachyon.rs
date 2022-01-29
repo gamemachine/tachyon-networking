@@ -23,6 +23,7 @@ mod connection_impl;
 #[cfg(test)]
 pub mod tachyon_test;
 
+use std::net::UdpSocket;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -80,23 +81,12 @@ impl std::fmt::Display for TachyonStats {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Default, Clone, Copy)]
 #[repr(C)]
 pub struct TachyonConfig {
     pub use_identity: u32,
     pub drop_packet_chance: u64,
     pub drop_reliable_only: u32
-}
-
-impl TachyonConfig {
-    pub fn default() -> Self {
-        let default = TachyonConfig {
-            use_identity: 0,
-            drop_packet_chance: 0,
-            drop_reliable_only: 0
-        };
-        return default;
-    }
 }
 
 #[derive(Clone, Copy)]
@@ -113,6 +103,7 @@ pub struct Tachyon {
     pub socket: TachyonSocket,
     pub socket_receive_buffer: Vec<u8>,
     pub unreliable_sender: Option<UnreliableSender>,
+    pub unreliable_send_buffer: Vec<u8>,
     pub identities: FxHashMap<u32, u32>,
     pub connections: FxHashMap<NetworkAddress, Connection>,
     pub identity_to_address_map: FxHashMap<u32, NetworkAddress>,
@@ -146,6 +137,7 @@ impl Tachyon {
             socket: socket,
             socket_receive_buffer: vec![0;SOCKET_RECEIVE_BUFFER_LEN],
             unreliable_sender: None,
+            unreliable_send_buffer: vec![0;UNRELIABLE_SEND_BUFFER_LEN],
             config,
             nack_send_data: vec![0; 4096],
             stats: TachyonStats::default(),
@@ -198,10 +190,7 @@ impl Tachyon {
         if !socket.is_some() {
             return None;
         }
-        let sender = UnreliableSender {
-             socket: socket,
-             send_buffer: vec![0;UNRELIABLE_SEND_BUFFER_LEN]
-        };
+        let sender = UnreliableSender::create(socket);
         return Some(sender);
     }
 
@@ -474,7 +463,7 @@ impl Tachyon {
 
         match &mut self.unreliable_sender {
             Some(sender) => {
-                let result = sender.send_unreliable(address, data, body_len);
+                let result = sender.send(address, &mut self.unreliable_send_buffer, data, body_len);
                 if result.error == 0 {
                     self.stats.unreliable_sent += 1;
                 }

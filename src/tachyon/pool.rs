@@ -41,6 +41,9 @@ pub struct Pool {
     pub published: VecDeque<Vec<u8>>,
     pub servers_in_use: Arc<ArrayQueue<Tachyon>>,
     pub counter: Option<Arc<CountdownEvent>>,
+    pub identity_to_server_map: FxHashMap<u32, u16>,
+    pub address_to_server_map: FxHashMap<NetworkAddress, u16>
+    
 }
 
 impl Pool {
@@ -75,6 +78,8 @@ impl Pool {
             published: VecDeque::new(),
             servers_in_use: Arc::new(in_use),
             counter: None,
+            identity_to_server_map: FxHashMap::default(),
+            address_to_server_map: FxHashMap::default()
         };
         return pool;
     }
@@ -101,24 +106,45 @@ impl Pool {
         }
     }
 
-    // TODO index these lookups.
-
-    pub fn get_server_having_connection(&self, address: NetworkAddress) -> u16 {
-        for (id,server) in &self.servers {
-            if server.connections.contains_key(&address) {
-                return *id;
+    pub fn set_identity(&mut self, server_id: u16, id: u32, session_id: u32, on_self: u32) {
+        if let Some(tachyon) = self.get_server(server_id) {
+            if on_self == 1 {
+                tachyon.identity.id = id;
+                tachyon.identity.session_id = session_id;
+            } else {
+                tachyon.set_identity(id, session_id);
             }
         }
-        return 0;
+    }
+
+    pub fn build_lookup_maps(&mut self) {
+        self.address_to_server_map.clear();
+        self.identity_to_server_map.clear();
+
+        for server in self.servers.values_mut() {
+            for conn in server.connections.values() {
+                self.address_to_server_map.insert(conn.address, server.id);
+                if conn.identity.id > 0 {
+                    self.identity_to_server_map.insert(conn.identity.id, server.id);
+                }
+            }
+        }
+    }
+
+    pub fn get_server_having_connection(&self, address: NetworkAddress) -> u16 {
+        if let Some(id) = self.address_to_server_map.get(&address) {
+            return *id;
+        } else {
+            return 0;
+        }
     }
 
     pub fn get_server_having_identity(&self, identity_id: u32) -> u16 {
-        for (id,server) in &self.servers {
-            if server.identity_to_address_map.contains_key(&identity_id) {
-                return *id;
-            }
+        if let Some(id) = self.identity_to_server_map.get(&identity_id) {
+            return *id;
+        } else {
+            return 0;
         }
-        return 0;
     }
 
     pub fn get_available_server(&self) -> Option<PoolServerRef> {
@@ -332,11 +358,15 @@ mod tests {
     #[test]
     #[serial]
     fn test_blocking_receive() {
-        let mut pool = Pool::create(4, 1024 * 1024, 1024 * 1024 * 4);
+        let mut pool = Pool::create(40, 1024 * 1024, 1024 * 1024 * 4);
         let config = TachyonConfig::default();
         pool.create_server(config, NetworkAddress::localhost(8001));
         pool.create_server(config, NetworkAddress::localhost(8002));
         pool.create_server(config, NetworkAddress::localhost(8003));
+
+        for i in 0..20 {
+            pool.create_server(config, NetworkAddress::localhost(8004 + i));
+        }
 
         let mut client1 = TachyonTestClient::create(NetworkAddress::localhost(8001));
         let mut client2 = TachyonTestClient::create(NetworkAddress::localhost(8002));
@@ -345,7 +375,7 @@ mod tests {
         client2.connect();
         client3.connect();
 
-        let count: usize = 200;
+        let count: usize = 2000;
         let msg_len = 64;
         let msg_value = 234873;
 
@@ -409,7 +439,7 @@ mod tests {
 
         // servers and arrays returned
         assert_eq!(pool.max_servers as usize, pool.out_buffers.len());
-        assert_eq!(3, pool.servers.len());
+        assert_eq!(23, pool.servers.len());
 
     }
 

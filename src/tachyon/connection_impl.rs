@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use super::connection::{Connection, Identity};
+use super::connection::{Connection, Identity, self};
 use super::header::{
     ConnectionHeader, MESSAGE_TYPE_IDENTITY_LINKED, MESSAGE_TYPE_IDENTITY_UNLINKED,
     MESSAGE_TYPE_LINK_IDENTITY, MESSAGE_TYPE_UNLINK_IDENTITY,
@@ -18,8 +18,8 @@ pub const UNLINK_IDENTITY_EVENT: u8 = 2;
 pub const IDENTITY_LINKED_EVENT: u8 = 3;
 pub const IDENTITY_UNLINKED_EVENT: u8 = 4;
 
-pub type ConnectionEventCallback = unsafe extern "C" fn(action: u8, address: NetworkAddress);
-pub type IdentityEventCallback = unsafe extern "C" fn(action: u8, address: NetworkAddress, id: u32, session_id: u32);
+pub type ConnectionEventCallback = unsafe extern "C" fn(action: u8, connection: Connection);
+pub type IdentityEventCallback = unsafe extern "C" fn(action: u8, connection: Connection);
 
 impl Tachyon {
     // setting identity removes any associated connection
@@ -78,16 +78,22 @@ impl Tachyon {
 
     pub fn fire_identity_event(&self, event_id: u8, address: NetworkAddress, id: u32, session_id: u32) {
         if let Some(callback) = self.identity_event_callback {
+            let mut conn = Connection::create(address, self.id);
+            conn.identity = Identity {id, session_id, linked: 0 };
+            if event_id == IDENTITY_LINKED_EVENT {
+               conn.identity.linked = 1; 
+            }
             unsafe {
-                callback(event_id, address, id, session_id);
+                callback(event_id, conn);
             }
         }
     }
 
     pub fn fire_connection_event(&self, event_id: u8, address: NetworkAddress) {
         if let Some(callback) = self.connection_event_callback {
+            let conn = Connection::create(address, self.id);
             unsafe {
-                callback(event_id, address);
+                callback(event_id, conn);
             }
         }
     }
