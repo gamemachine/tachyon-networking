@@ -51,7 +51,7 @@ The best concurrency is no concurrency. Tachyon is parallel but uses no concurre
 
 Concurrent sending is supported for unreliable but not reliable. For reliable sends you have to send from one thread at a time.  Udp sockets are atomic at the OS level, so unreliable is just a direct path to that. UnreliableSender is a struct that can be created for use in other threads. That is a rust thing it's not needed for actual thread safety it's just needed for Rust to know it's safe.
 
-Parallel receiving does have additional overhead.  It allocates bytes for received messages and then finally pushes those all to a single consumer queue. The design is a concurrent queue of non concurrent queues. A Tachyon instance will do a concurrent dequeue of the normal queue, receive into that, and then enqueue that back onto the concurrent queue.  Batch level atomic ops nothing fine grained.  
+Parallel receiving uses batching concurrency.  We use a concurrent queue of non concurrent queues to limit fine grained concurrency to just a couple of ops per server.
 
 
 ## Todo list

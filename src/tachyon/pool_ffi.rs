@@ -30,6 +30,21 @@ pub extern "C" fn pool_create_server(pool_ptr: *mut Pool, config_ptr: *const Tac
 }
 
 #[no_mangle]
+pub extern "C" fn pool_configure_channel(pool_ptr: *mut Pool, server_id: u16, channel_id: u8, config_ptr: *const ChannelConfig) -> i32 {
+    let pool = unsafe { &mut *pool_ptr };
+    if let Some(tachyon) = pool.get_server(server_id) {
+        let channel_config = unsafe { &*config_ptr };
+        let res = tachyon.configure_channel(channel_id, *channel_config);
+        if res {
+            return 1;
+        } else {
+            return -1;
+        }
+    }
+    return -1;
+}
+
+#[no_mangle]
 pub extern "C" fn pool_get_available(pool_ptr: *mut Pool, pool_ref_ptr: *mut PoolServerRef) -> i32 {
     let pool = unsafe { &mut *pool_ptr };
 
@@ -80,10 +95,39 @@ pub extern "C" fn pool_get_connections(pool_ptr: *mut Pool, connections: *mut Co
 }
 
 #[no_mangle]
+pub extern "C" fn pool_set_identity(pool_ptr: *mut Pool, server_id: u16, id: u32, session_id: u32, on_self: u32) {
+    let pool = unsafe { &mut *pool_ptr };
+    if let Some(tachyon) = pool.get_server(server_id) {
+        if on_self == 1 {
+            tachyon.identity.id = id;
+            tachyon.identity.session_id = session_id;
+        } else {
+            tachyon.set_identity(id, session_id);
+        }
+    }
+}
+
+#[no_mangle]
 pub extern "C" fn pool_update_servers(pool_ptr: *mut Pool) {
     let pool = unsafe { &mut *pool_ptr };
     for server in pool.servers.values_mut() {
         server.update();
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn pool_register_callbacks(pool_ptr: *mut Pool, identity_event_callback: Option<IdentityEventCallback>,
+     connection_event_callback: Option<ConnectionEventCallback>) {
+
+    let pool = unsafe { &mut *pool_ptr };
+    for server in pool.servers.values_mut() {
+        if identity_event_callback.is_some() {
+            server.identity_event_callback = identity_event_callback;
+        }
+    
+        if connection_event_callback.is_some() {
+            server.connection_event_callback = connection_event_callback;
+        }
     }
 }
 
