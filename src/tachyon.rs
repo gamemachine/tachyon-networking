@@ -16,6 +16,7 @@ pub mod sequence_buffer;
 pub mod tachyon_socket;
 pub mod unreliable_sender;
 pub mod byte_buffer_pool;
+pub mod pool_unreliable_sender;
 
 mod connection_impl;
 
@@ -23,7 +24,6 @@ mod connection_impl;
 #[cfg(test)]
 pub mod tachyon_test;
 
-use std::net::UdpSocket;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -40,6 +40,7 @@ use self::connection_impl::UNLINK_IDENTITY_EVENT;
 use self::fragmentation::*;
 use self::header::*;
 use self::network_address::NetworkAddress;
+use self::pool::SendTarget;
 use self::receive_result::ReceiveResult;
 use self::receive_result::TachyonReceiveResult;
 use self::receive_result::RECEIVE_ERROR_CHANNEL;
@@ -56,7 +57,6 @@ pub const SEND_ERROR_IDENTITY: u32 = 6;
 
 
 const SOCKET_RECEIVE_BUFFER_LEN: usize = 1024 * 1024;
-const UNRELIABLE_SEND_BUFFER_LEN: usize = 1024 * 64;
 
 #[derive(Clone, Copy)]
 #[repr(C)]
@@ -103,7 +103,6 @@ pub struct Tachyon {
     pub socket: TachyonSocket,
     pub socket_receive_buffer: Vec<u8>,
     pub unreliable_sender: Option<UnreliableSender>,
-    pub unreliable_send_buffer: Vec<u8>,
     pub identities: FxHashMap<u32, u32>,
     pub connections: FxHashMap<NetworkAddress, Connection>,
     pub identity_to_address_map: FxHashMap<u32, NetworkAddress>,
@@ -137,7 +136,6 @@ impl Tachyon {
             socket: socket,
             socket_receive_buffer: vec![0;SOCKET_RECEIVE_BUFFER_LEN],
             unreliable_sender: None,
-            unreliable_send_buffer: vec![0;UNRELIABLE_SEND_BUFFER_LEN],
             config,
             nack_send_data: vec![0; 4096],
             stats: TachyonStats::default(),
@@ -454,6 +452,22 @@ impl Tachyon {
         return ReceiveResult::Error;
     }
 
+    pub fn send_unreliable_to_target(&mut self, target: SendTarget, data: &mut [u8], length: i32) -> TachyonSendResult {
+        let mut address = NetworkAddress::default();
+    
+        if target.identity_id > 0 {
+            if let Some(addr) = self.identity_to_address_map.get(&target.identity_id) {
+                address = *addr;
+            }
+        }
+    
+        if target.identity_id > 0 {
+           return self.send_unreliable(address, data, length as usize);
+        } else {
+            return self.send_unreliable(target.address, data, length as usize);
+        }
+    }
+
     pub fn send_unreliable(&mut self, address: NetworkAddress, data: &mut [u8], body_len: usize) -> TachyonSendResult {
         if !self.can_send() {
             let mut result = TachyonSendResult::default();
@@ -463,7 +477,7 @@ impl Tachyon {
 
         match &mut self.unreliable_sender {
             Some(sender) => {
-                let result = sender.send(address, &mut self.unreliable_send_buffer, data, body_len);
+                let result = sender.send(address, data, body_len);
                 if result.error == 0 {
                     self.stats.unreliable_sent += 1;
                 }
@@ -474,6 +488,22 @@ impl Tachyon {
                 result.error = SEND_ERROR_UNKNOWN;
                 return result;
             }
+        }
+    }
+
+    pub fn send_reliable_to_target(&mut self, channel: u8, target: SendTarget, data: &mut [u8], length: i32) -> TachyonSendResult {
+        let mut address = NetworkAddress::default();
+    
+        if target.identity_id > 0 {
+            if let Some(addr) = self.identity_to_address_map.get(&target.identity_id) {
+                address = *addr;
+            }
+        }
+    
+        if target.identity_id > 0 {
+           return self.send_reliable(channel,address, data, length as usize);
+        } else {
+            return self.send_reliable(channel,target.address, data, length as usize);
         }
     }
 
@@ -643,13 +673,13 @@ mod tests {
         test.send_buffer[3] = 6;
         let sent = test.client_send_unreliable(4);
         assert_eq!(0, sent.error);
-        assert_eq!(5, sent.sent_len as usize);
+        assert_eq!(4, sent.sent_len as usize);
 
         let res = test.server_receive();
-        assert_eq!(4, res.length);
-        assert_eq!(3, test.receive_buffer[0]);
-        assert_eq!(4, test.receive_buffer[1]);
-        assert_eq!(5, test.receive_buffer[2]);
-        assert_eq!(6, test.receive_buffer[3]);
+        assert_eq!(3, res.length);
+        assert_eq!(4, test.receive_buffer[0]);
+        assert_eq!(5, test.receive_buffer[1]);
+        assert_eq!(6, test.receive_buffer[2]);
+        assert_eq!(0, test.receive_buffer[3]);
     }
 }

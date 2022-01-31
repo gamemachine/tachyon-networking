@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use super::connection::{Connection, Identity, self};
+use super::connection::{Connection, Identity};
 use super::header::{
     ConnectionHeader, MESSAGE_TYPE_IDENTITY_LINKED, MESSAGE_TYPE_IDENTITY_UNLINKED,
     MESSAGE_TYPE_LINK_IDENTITY, MESSAGE_TYPE_UNLINK_IDENTITY,

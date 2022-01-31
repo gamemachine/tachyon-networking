@@ -8,7 +8,16 @@ use rayon::iter::{IntoParallelRefMutIterator, ParallelIterator};
 use rustc_hash::FxHashMap;
 use synchronoise::CountdownEvent;
 
-use super::{network_address::NetworkAddress, Tachyon, TachyonConfig, int_buffer::LengthPrefixed, connection::Connection};
+use super::{network_address::NetworkAddress, Tachyon, TachyonConfig, int_buffer::LengthPrefixed, connection::Connection, TachyonSendResult};
+
+
+#[derive(Clone, Copy)]
+#[repr(C)]
+#[derive(Default)]
+pub struct SendTarget {
+    pub identity_id: u32,
+    pub address: NetworkAddress
+}
 
 #[derive(Default, Clone, Copy)]
 #[repr(C)]
@@ -41,8 +50,8 @@ pub struct Pool {
     pub published: VecDeque<Vec<u8>>,
     pub servers_in_use: Arc<ArrayQueue<Tachyon>>,
     pub counter: Option<Arc<CountdownEvent>>,
-    pub identity_to_server_map: FxHashMap<u32, u16>,
-    pub address_to_server_map: FxHashMap<NetworkAddress, u16>
+    pub connections_by_identity: FxHashMap<u32, Connection>,
+    pub connections_by_address: FxHashMap<NetworkAddress, Connection>
     
 }
 
@@ -78,30 +87,31 @@ impl Pool {
             published: VecDeque::new(),
             servers_in_use: Arc::new(in_use),
             counter: None,
-            identity_to_server_map: FxHashMap::default(),
-            address_to_server_map: FxHashMap::default()
+            connections_by_identity: FxHashMap::default(),
+            connections_by_address: FxHashMap::default()
         };
         return pool;
     }
 
-    pub fn create_server(&mut self, config: TachyonConfig, address: NetworkAddress) -> Option<&mut Tachyon> {
+    pub fn create_server(&mut self, config: TachyonConfig, address: NetworkAddress, id: u16) -> bool {
 
         if self.servers.len() > self.max_servers.into() {
-            return None;
+            return false;
         }
-        
+        if self.servers.contains_key(&id) {
+            return false;
+        }
+
         let mut tachyon = Tachyon::create(config);
         match tachyon.bind(address) {
             true => {
-                self.next_id += 1;
-                let id = self.next_id;
                 tachyon.id = id;
                 self.servers.insert(id, tachyon);
 
-                return self.servers.get_mut(&id);
+                return true;
             }
             false => {
-                return None;
+                return false;
             }
         }
     }
@@ -117,31 +127,31 @@ impl Pool {
         }
     }
 
-    pub fn build_lookup_maps(&mut self) {
-        self.address_to_server_map.clear();
-        self.identity_to_server_map.clear();
+    pub fn build_connection_maps(&mut self) {
+        self.connections_by_address.clear();
+        self.connections_by_identity.clear();
 
         for server in self.servers.values_mut() {
             for conn in server.connections.values() {
-                self.address_to_server_map.insert(conn.address, server.id);
+                self.connections_by_address.insert(conn.address, *conn);
                 if conn.identity.id > 0 {
-                    self.identity_to_server_map.insert(conn.identity.id, server.id);
+                    self.connections_by_identity.insert(conn.identity.id, *conn);
                 }
             }
         }
     }
 
     pub fn get_server_having_connection(&self, address: NetworkAddress) -> u16 {
-        if let Some(id) = self.address_to_server_map.get(&address) {
-            return *id;
+        if let Some(conn) = self.connections_by_address.get(&address) {
+            return conn.tachyon_id;
         } else {
             return 0;
         }
     }
 
     pub fn get_server_having_identity(&self, identity_id: u32) -> u16 {
-        if let Some(id) = self.identity_to_server_map.get(&identity_id) {
-            return *id;
+        if let Some(conn) = self.connections_by_identity.get(&identity_id) {
+            return conn.tachyon_id;
         } else {
             return 0;
         }
@@ -163,6 +173,32 @@ impl Pool {
     
     pub fn get_server(&mut self, id: u16) -> Option<&mut Tachyon> {
         return self.servers.get_mut(&id);
+    }
+
+    pub fn send_to_target(&mut self,channel_id: u8, target: SendTarget, data: &mut [u8], length: i32) -> TachyonSendResult {
+        if target.identity_id > 0 {
+            return self.send_to_identity(channel_id,target.identity_id, data, length);
+        } else {
+            return self.send_to_address(channel_id,target.address, data, length);
+        }
+    }
+
+    fn send_to_identity(&mut self, channel_id: u8, id: u32, data: &mut [u8], length: i32) -> TachyonSendResult {
+        if let Some(conn) = self.connections_by_identity.get(&id) {
+            if let Some(server) = self.servers.get_mut(&conn.tachyon_id) {
+                return server.send_reliable(channel_id,conn.address, data, length as usize);
+            }
+        }
+        return TachyonSendResult::default();
+    }
+
+    fn send_to_address(&mut self,channel_id: u8, address: NetworkAddress, data: &mut [u8], length: i32) -> TachyonSendResult {
+        if let Some(conn) = self.connections_by_address.get(&address) {
+            if let Some(sender) = self.servers.get_mut(&conn.tachyon_id) {
+                return sender.send_reliable(channel_id, address, data, length as usize);
+            }
+        }
+        return TachyonSendResult::default();
     }
 
     pub fn take_published(&mut self) -> Option<Vec<u8>> {
@@ -306,7 +342,7 @@ impl Pool {
                 out_buffer.bytes_written = writer.writer.index as u32;
                 break;
             } else {
-                writer.write(res.address,&receive_buffer[0..res.length as usize], &mut out_buffer.data);
+                writer.write(res.channel,res.address,&receive_buffer[0..res.length as usize], &mut out_buffer.data);
                 out_buffer.count += 1;
             }
         }
@@ -360,12 +396,14 @@ mod tests {
     fn test_blocking_receive() {
         let mut pool = Pool::create(40, 1024 * 1024, 1024 * 1024 * 4);
         let config = TachyonConfig::default();
-        pool.create_server(config, NetworkAddress::localhost(8001));
-        pool.create_server(config, NetworkAddress::localhost(8002));
-        pool.create_server(config, NetworkAddress::localhost(8003));
+        pool.create_server(config, NetworkAddress::localhost(8001),1);
+        pool.create_server(config, NetworkAddress::localhost(8002),2);
+        pool.create_server(config, NetworkAddress::localhost(8003),3);
 
+        let mut id = 4;
         for i in 0..20 {
-            pool.create_server(config, NetworkAddress::localhost(8004 + i));
+            pool.create_server(config, NetworkAddress::localhost(8004 + i), id);
+            id += 1;
         }
 
         let mut client1 = TachyonTestClient::create(NetworkAddress::localhost(8001));
@@ -406,14 +444,14 @@ mod tests {
 
         
 
-        // length + address + body
-        let bytes_written = count * msg_len + count * 4 + count * 12;
+        // length + channel + address + body
+        let bytes_written = count * msg_len + count * 4 + count * 14;
         assert_eq!(res.bytes_written, bytes_written as u32);
         assert_eq!(count, res.count as usize);
 
         let mut reader = LengthPrefixed::default();
         for _ in 0..res.count {
-            let (_address,range) = reader.read(&receive_buffer);
+            let (channel,_address,range) = reader.read(&receive_buffer);
             let len = range.end - range.start;
             //println!("len:{0} address:{1}", len, address);
 
@@ -448,9 +486,9 @@ mod tests {
     fn test_receive() {
         let mut pool = Pool::create(4, 1024 * 1024, 1024 * 1024 * 4);
         let config = TachyonConfig::default();
-        pool.create_server(config, NetworkAddress::localhost(8001));
-        pool.create_server(config, NetworkAddress::localhost(8002));
-        pool.create_server(config, NetworkAddress::localhost(8003));
+        pool.create_server(config, NetworkAddress::localhost(8001),1);
+        pool.create_server(config, NetworkAddress::localhost(8002),2);
+        pool.create_server(config, NetworkAddress::localhost(8003),3);
 
         let mut client1 = TachyonTestClient::create(NetworkAddress::localhost(8001));
         let mut client2 = TachyonTestClient::create(NetworkAddress::localhost(8002));

@@ -1,6 +1,9 @@
 
-
+use std::alloc::{alloc_zeroed, Layout, dealloc};
 use crate::tachyon::*;
+
+use super::pool::SendTarget;
+
 
 #[no_mangle]
 pub extern "C" fn register_callbacks(tachyon_ptr: *mut Tachyon, identity_event_callback: Option<IdentityEventCallback>,
@@ -75,22 +78,22 @@ pub fn copy_send_result(from: TachyonSendResult, to: *mut TachyonSendResult) {
 }
 
 #[no_mangle]
-pub extern "C" fn send_unreliable_to(tachyon_ptr: *mut Tachyon, naddress: *const NetworkAddress, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
+pub extern "C" fn send_unreliable_to(tachyon_ptr: *mut Tachyon, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
-    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
+    let target: SendTarget = unsafe { std::ptr::read(target_ptr as *const _) };
     let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
 
-    let result = tachyon.send_unreliable(address, slice, length as usize);
+    let result = tachyon.send_unreliable_to_target(target, slice, length);
     copy_send_result(result, ret);
 }
 
 #[no_mangle]
-pub extern "C" fn send_reliable_to(tachyon_ptr: *mut Tachyon, channel: u8, naddress: *const NetworkAddress, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
+pub extern "C" fn send_reliable_to(tachyon_ptr: *mut Tachyon, channel: u8, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
-    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
+    let target: SendTarget = unsafe { std::ptr::read(target_ptr as *const _) };
     let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
 
-    let result = tachyon.send_reliable(channel, address, slice, length as usize);
+    let result = tachyon.send_reliable_to_target(channel, target, slice, length);
     copy_send_result(result, ret);
 }
 
@@ -135,22 +138,6 @@ pub extern "C" fn tachyon_get_connection_by_identity(tachyon_ptr: *mut Tachyon, 
     }
 }
 
-// #[no_mangle]
-// pub extern "C" fn get_connections(tachyon_ptr: *mut Tachyon, connections: *mut Connection, max: i32) -> i32 {
-//     let tachyon = unsafe {&mut*tachyon_ptr};
-//     let list = tachyon.get_connections(max);
-    
-//     if list.len() > 0 {
-
-//         unsafe {
-//             std::ptr::copy_nonoverlapping(list.as_ptr(), connections, list.len());
-//         }
-//     }
-    
-    
-//     return list.len() as i32;
-// }
-
 #[no_mangle]
 pub extern "C" fn tachyon_get_config(tachyon_ptr: *mut Tachyon, config: *mut TachyonConfig, identity: *mut Identity) {
     let tachyon = unsafe { &mut *tachyon_ptr };
@@ -183,6 +170,7 @@ pub extern "C" fn get_stats(tachyon_ptr: *mut Tachyon, stats: *mut TachyonStats)
     }
 }
 
+
 #[no_mangle]
 pub extern "C" fn create_unreliable_sender(tachyon_ptr: *mut Tachyon) -> *mut UnreliableSender {
     let tachyon = unsafe { &mut *tachyon_ptr };
@@ -201,14 +189,61 @@ pub extern "C" fn destroy_unreliable_sender(sender_ptr: *mut UnreliableSender) {
 }
 
 #[no_mangle]
-pub extern "C" fn send_unreliable_to_with_sender(sender_ptr: *mut UnreliableSender, naddress: *const NetworkAddress,
-     send_buffer_ptr: *mut u8, data_ptr: *mut u8, length: i32, ret: *mut TachyonSendResult) {
-
+pub extern "C" fn send_unreliable_to_with_sender(sender_ptr: *mut UnreliableSender, naddress: *const NetworkAddress, data_ptr: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let sender = unsafe { &mut *sender_ptr };
     let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
     let data = unsafe { std::slice::from_raw_parts_mut(data_ptr, length as usize) };
-    let send_buffer = unsafe { std::slice::from_raw_parts_mut(send_buffer_ptr, length as usize) };
-
-    let result = sender.send(address, send_buffer, data, length as usize);
+    let result = sender.send(address, data, length as usize);
     copy_send_result(result, ret);
 }
+
+
+
+// This is for ffi where we would need different allocators depending on environment.
+// Specifically where this is used in both .Net 6 and in Unity's burst compiler.
+
+#[repr(C)]
+pub struct MemoryBlock {
+    pub memory: *mut u8,
+    pub length: u32
+}
+
+#[no_mangle]
+pub extern "C" fn allocate_memory_block(length: u32, block_ptr: *mut MemoryBlock) -> i32 {
+    match Layout::array::<u8>(length as usize) {
+        Ok(layout) => {
+            unsafe {
+                (*block_ptr).memory = alloc_zeroed(layout);
+                (*block_ptr).length = length;
+                return 1;
+            }
+        },
+        Err(_) => {
+            return -1;
+        },
+    }
+}
+
+#[no_mangle]
+pub extern "C" fn free_memory_block(block_ptr: *mut MemoryBlock) -> i32 {
+    if block_ptr.is_null() {
+        return -2;
+    }
+    let block: MemoryBlock = unsafe { std::ptr::read(block_ptr as *mut _) };
+    if block.length == 0 {
+        return -3;
+    }
+
+    match Layout::array::<u8>(block.length as usize) {
+        Ok(layout) => {
+            unsafe {
+                dealloc(block.memory, layout);
+                return 1;
+            }
+        },
+        Err(_) => {
+            return -1;
+        },
+    }
+}
+

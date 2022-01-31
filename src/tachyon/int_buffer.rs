@@ -92,19 +92,21 @@ impl LengthPrefixed {
         }
     }
 
-    pub fn write(&mut self, src_address: NetworkAddress, src: &[u8], dst: &mut [u8]) {
+    pub fn write(&mut self, channel: u16, src_address: NetworkAddress, src: &[u8], dst: &mut [u8]) {
         self.writer.write_u32(src.len() as u32, dst);
+        self.writer.write_u16(channel, dst);
         self.writer.write_address(src_address, dst);
         dst[self.writer.index..self.writer.index+src.len()].copy_from_slice(&src);
         self.writer.index += src.len();
     }
 
-    pub fn read(&mut self, data: &[u8]) -> (NetworkAddress,Range<usize>) {
+    pub fn read(&mut self, data: &[u8]) -> (u16,NetworkAddress,Range<usize>) {
         let len = self.reader.read_u32(&data) as usize;
+        let channel = self.reader.read_u16(&data);
         let address = self.reader.read_address(&data);
         let range = self.reader.index..self.reader.index+len;
         self.reader.index += len;
-        return (address,range);
+        return (channel, address,range);
     }
 }
 

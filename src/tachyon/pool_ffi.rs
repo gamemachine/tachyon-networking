@@ -1,8 +1,7 @@
 
-use std::net::UdpSocket;
 
 use crate::tachyon::*;
-use super::{pool::{Pool, PoolServerRef, OutBufferCounts}, ffi::copy_send_result};
+use super::{pool::{Pool, PoolServerRef, OutBufferCounts, SendTarget}, ffi::copy_send_result};
 
 #[no_mangle]
 pub extern "C" fn pool_create(max_servers: u8, receive_buffer_len: u32, out_buffer_len: u32) -> *mut Pool {
@@ -19,15 +18,13 @@ pub extern "C" fn pool_destroy(pool: *mut Pool) {
 }
 
 #[no_mangle]
-pub extern "C" fn pool_create_server(pool_ptr: *mut Pool, config_ptr: *const TachyonConfig, naddress: *const NetworkAddress) -> u16 {
+pub extern "C" fn pool_create_server(pool_ptr: *mut Pool, config_ptr: *const TachyonConfig, naddress: *const NetworkAddress, id: u16) -> i32 {
     let pool = unsafe { &mut *pool_ptr };
     let config: TachyonConfig = unsafe { std::ptr::read(config_ptr as *const _) };
     let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
-    match pool.create_server(config, address) {
-        Some(server) => {
-            return server.id;
-        }
-        None => return 0,
+    match pool.create_server(config, address, id) {
+        true => {return 1;},
+        false => { return -1;},
     }
 }
 
@@ -88,7 +85,7 @@ pub extern "C" fn pool_update_servers(pool_ptr: *mut Pool) {
     for server in pool.servers.values_mut() {
         server.update();
     }
-    pool.build_lookup_maps();
+    pool.build_connection_maps();
 }
 
 #[no_mangle]
@@ -141,49 +138,14 @@ pub extern "C" fn pool_finish_receive(pool_ptr: *mut Pool) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn pool_send_reliable_to(pool_ptr: *mut Pool, channel: u8, naddress: *const NetworkAddress, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
+pub extern "C" fn pool_send_reliable_to(pool_ptr: *mut Pool, channel: u8, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let pool = unsafe { &mut *pool_ptr };
     
-    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
-    let server_id = pool.get_server_having_connection(address);
-    if let Some(tachyon) = pool.get_server(server_id) {
-        let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
+    let target: SendTarget = unsafe { std::ptr::read(target_ptr as *const _) };
+    let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
 
-        let result = tachyon.send_reliable(channel, address, slice, length as usize);
-        copy_send_result(result, ret);
-    }
+    let result = pool.send_to_target(channel, target, slice, length);
+    copy_send_result(result, ret);
 }
 
-#[no_mangle]
-pub extern "C" fn pool_send_unreliable_to(pool_ptr: *mut Pool, naddress: *const NetworkAddress, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
-    let pool = unsafe { &mut *pool_ptr };
-    
-    let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
-    let server_id = pool.get_server_having_connection(address);
-    if let Some(tachyon) = pool.get_server(server_id) {
-        let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
-
-        let result = tachyon.send_unreliable(address, slice, length as usize);
-        copy_send_result(result, ret);
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn pool_create_unreliable_sender(pool_ptr: *mut Pool, server_id: u16) -> *mut UnreliableSender {
-    let pool = unsafe { &mut *pool_ptr };
-    if let Some(server) = pool.get_server(server_id) {
-        if let Some(sender) = server.create_unreliable_sender() {
-            let b = Box::new(sender);
-            return Box::into_raw(b);
-        }
-    }
-    return std::ptr::null_mut();
-}
-
-#[no_mangle]
-pub extern "C" fn pool_destroy_unreliable_sender(sender_ptr: *mut UnreliableSender) {
-    if !sender_ptr.is_null() {
-        let _b = unsafe { Box::from_raw(sender_ptr) };
-    }
-}
 
