@@ -67,8 +67,12 @@ Not much in the way of documentation yet but there are a good number of unit tes
 update() has to be called once per frame.  That is where nacks and resends in response to nacks received are sent.  In addition to some housekeeping and fragment expiration.  Sends are processed immediately.
 
 ## Pool usage
-The pool api is getting better but the receive api's are still a WIP.  There are 3 versions two of them do heap allocations and a newer but more complex version
-that does not.  That version writes out received messages into a single out buffer per tachyon, with individual messages prefixed with length and ip address.  And then you read that out buffer using LengthPrefixed like a stream.  This extra work is primarily to avoid memory fragmention from unnecessary allocations.
+The pool api has a more complex flow and separates reliable and unreliable sending.  The pool maintains an internal mapping of addreses and identities to tachyons.
+So you don't have to maintain that yourself using callbacks.  So PoolUnreliableSender has it's own set of those maps but they map to the cloned sockets instead.
+You can create multiple PoolUnreliableSender's and then move them to different threads.  They are fairly lightweight outside of the map building they do on creation. The intent is you instantiate a sender one per frame/thread, not for every message.
+
+There are 3 versions of the receive api currently. Two of them do heap allocations and a newer but more complex version
+that does not.  That version writes out received messages into a single out buffer per tachyon, with individual messages prefixed with length, channel, and ip address.  And then you read that out buffer using LengthPrefixed like a stream.  This extra work is primarily to avoid memory fragmention from unnecessary allocations.
 
 
 ### Basic usage.
