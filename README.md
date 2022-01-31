@@ -66,6 +66,8 @@ Not much in the way of documentation yet but there are a good number of unit tes
 
 update() has to be called once per frame.  That is where nacks and resends in response to nacks received are sent.  In addition to some housekeeping and fragment expiration.  Sends are processed immediately.
 
+Unreliable message bodies need to be offset by +1. Ie if you send a 12 byte message body the byte array slice needs to be 13 length.  Tachyon will write the internal message type into position 0.  It's a bit of extra complexity but the alternative is always doing a memcpy for unreliable messages.
+
 ## Pool usage
 The pool api has a more complex flow and separates reliable and unreliable sending.  The pool maintains an internal mapping of addreses and identities to tachyons.
 So you don't have to maintain that yourself using callbacks.  So PoolUnreliableSender has it's own set of those maps but they map to the cloned sockets instead.
