@@ -1,5 +1,4 @@
 
-
 use crate::tachyon::*;
 use super::{pool::{Pool, PoolServerRef, OutBufferCounts, SendTarget}, ffi::copy_send_result};
 
@@ -138,7 +137,7 @@ pub extern "C" fn pool_finish_receive(pool_ptr: *mut Pool) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn pool_send_reliable_to(pool_ptr: *mut Pool, channel: u8, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
+pub extern "C" fn pool_send_to(pool_ptr: *mut Pool, channel: u8, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let pool = unsafe { &mut *pool_ptr };
     
     let target: SendTarget = unsafe { std::ptr::read(target_ptr as *const _) };

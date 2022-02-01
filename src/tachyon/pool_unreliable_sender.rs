@@ -29,7 +29,7 @@ impl PoolUnreliableSender {
 
     fn send_to_identity(&mut self, id: u32, data: &mut [u8], length: i32) -> TachyonSendResult {
         if let Some(conn) = self.identity_to_conn_map.get(&id) {
-            if let Some(sender) = self.senders.get(&conn.tachyon_id) {
+            if let Some(sender) = self.senders.get_mut(&conn.tachyon_id) {
                 return sender.send(conn.address, data, length as usize);
             }
         }
@@ -38,7 +38,7 @@ impl PoolUnreliableSender {
 
     fn send_to_address(&mut self, address: NetworkAddress, data: &mut [u8], length: i32) -> TachyonSendResult {
         if let Some(conn) = self.address_to_conn_map.get(&address) {
-            if let Some(sender) = self.senders.get(&conn.tachyon_id) {
+            if let Some(sender) = self.senders.get_mut(&conn.tachyon_id) {
                 return sender.send(address, data, length as usize);
             }
         }

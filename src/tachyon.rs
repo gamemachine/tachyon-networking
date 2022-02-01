@@ -354,16 +354,16 @@ impl Tachyon {
                             if self.try_link_identity(address, connection_header.id, connection_header.session_id) {
                                 self.fire_identity_event(LINK_IDENTITY_EVENT, address, connection_header.id, connection_header.session_id);
                             }
-                            return ReceiveResult::Empty;
+                            return ReceiveResult::Retry;
                         } else if header.message_type == MESSAGE_TYPE_UNLINK_IDENTITY {
                             connection_header = ConnectionHeader::read(&self.socket_receive_buffer);
                             if self.try_unlink_identity(address, connection_header.id, connection_header.session_id) {
                                 self.fire_identity_event(UNLINK_IDENTITY_EVENT, address, connection_header.id, connection_header.session_id);
                             }
-                            return ReceiveResult::Empty;
+                            return ReceiveResult::Retry;
                         } else {
                             if !self.validate_and_update_linked_connection(address) {
-                                return ReceiveResult::Empty;
+                                return ReceiveResult::Retry;
                             }
                         }
                     } else {
@@ -375,15 +375,15 @@ impl Tachyon {
                             self.identity.set_linked(1);
                             self.fire_identity_event(IDENTITY_LINKED_EVENT, address, 0, 0);
                             
-                            return ReceiveResult::Empty;
+                            return ReceiveResult::Retry;
                         } else if header.message_type == MESSAGE_TYPE_IDENTITY_UNLINKED {
                             self.identity.set_linked(0);
                             self.fire_identity_event(IDENTITY_UNLINKED_EVENT, address, 0, 0);
-                            return ReceiveResult::Empty;
+                            return ReceiveResult::Retry;
                         }
 
                         if !self.identity.is_linked() {
-                            return ReceiveResult::Empty;
+                            return ReceiveResult::Retry;
                         }
                     }
                 }
@@ -452,19 +452,23 @@ impl Tachyon {
         return ReceiveResult::Error;
     }
 
-    pub fn send_unreliable_to_target(&mut self, target: SendTarget, data: &mut [u8], length: i32) -> TachyonSendResult {
-        let mut address = NetworkAddress::default();
+    pub fn send_to_target(&mut self, channel: u8, target: SendTarget, data: &mut [u8], length: usize) -> TachyonSendResult {
+        let mut address = target.address;
     
         if target.identity_id > 0 {
             if let Some(addr) = self.identity_to_address_map.get(&target.identity_id) {
                 address = *addr;
+            } else {
+                let mut result = TachyonSendResult::default();
+                result.error = SEND_ERROR_IDENTITY;
+                return result;
             }
         }
     
-        if target.identity_id > 0 {
-           return self.send_unreliable(address, data, length as usize);
+        if channel > 0 {
+            return self.send_reliable(channel,address, data, length as usize);
         } else {
-            return self.send_unreliable(target.address, data, length as usize);
+            return self.send_unreliable(address, data, length as usize);
         }
     }
 
@@ -488,22 +492,6 @@ impl Tachyon {
                 result.error = SEND_ERROR_UNKNOWN;
                 return result;
             }
-        }
-    }
-
-    pub fn send_reliable_to_target(&mut self, channel: u8, target: SendTarget, data: &mut [u8], length: i32) -> TachyonSendResult {
-        let mut address = NetworkAddress::default();
-    
-        if target.identity_id > 0 {
-            if let Some(addr) = self.identity_to_address_map.get(&target.identity_id) {
-                address = *addr;
-            }
-        }
-    
-        if target.identity_id > 0 {
-           return self.send_reliable(channel,address, data, length as usize);
-        } else {
-            return self.send_reliable(channel,target.address, data, length as usize);
         }
     }
 
@@ -592,6 +580,16 @@ mod tests {
 
     #[test]
     #[serial]
+    fn test_invalid_receive() {
+        let mut buffer: Vec<u8> = vec![0;1024];
+        let config = TachyonConfig::default();
+        let mut server = Tachyon::create(config);
+        let res = server.receive_loop(&mut buffer);
+        assert_eq!(RECEIVE_ERROR_UNKNOWN, res.error);
+    }
+
+    #[test]
+    #[serial]
     fn test_reliable() {
         // reliable messages just work with message bodies, headers are all internal
 
@@ -673,13 +671,13 @@ mod tests {
         test.send_buffer[3] = 6;
         let sent = test.client_send_unreliable(4);
         assert_eq!(0, sent.error);
-        assert_eq!(4, sent.sent_len as usize);
+        assert_eq!(5, sent.sent_len as usize);
 
         let res = test.server_receive();
-        assert_eq!(3, res.length);
-        assert_eq!(4, test.receive_buffer[0]);
-        assert_eq!(5, test.receive_buffer[1]);
-        assert_eq!(6, test.receive_buffer[2]);
-        assert_eq!(0, test.receive_buffer[3]);
+        assert_eq!(4, res.length);
+        assert_eq!(3, test.receive_buffer[0]);
+        assert_eq!(4, test.receive_buffer[1]);
+        assert_eq!(5, test.receive_buffer[2]);
+        assert_eq!(6, test.receive_buffer[3]);
     }
 }

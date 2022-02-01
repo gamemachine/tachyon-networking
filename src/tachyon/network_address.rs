@@ -53,6 +53,16 @@ impl NetworkAddress {
         return address;
     }
 
+    pub fn broadcast(channel: u8) -> Self {
+        NetworkAddress {
+            a: 255,
+            b: 255,
+            c: 255,
+            d: 255,
+            port: channel as u32,
+        }
+    }
+
     pub fn localhost(port: u32) -> Self {
         let address = NetworkAddress {
             a: 127,
@@ -98,6 +108,10 @@ impl NetworkAddress {
 
     pub fn is_default(&self) -> bool {
         return NetworkAddress::default() == *self;
+    }
+
+    pub fn is_broadcast(&self) -> bool {
+        self.a == 255 && self.b == 255 && self.c == 255 && self.d == 255
     }
 
     pub fn copy_from(&mut self, other: NetworkAddress) {

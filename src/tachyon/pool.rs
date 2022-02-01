@@ -186,7 +186,11 @@ impl Pool {
     fn send_to_identity(&mut self, channel_id: u8, id: u32, data: &mut [u8], length: i32) -> TachyonSendResult {
         if let Some(conn) = self.connections_by_identity.get(&id) {
             if let Some(server) = self.servers.get_mut(&conn.tachyon_id) {
-                return server.send_reliable(channel_id,conn.address, data, length as usize);
+                if channel_id == 0 {
+                    return server.send_unreliable(conn.address, data, length as usize);
+                } else {
+                    return server.send_reliable(channel_id,conn.address, data, length as usize);
+                }
             }
         }
         return TachyonSendResult::default();
@@ -195,7 +199,11 @@ impl Pool {
     fn send_to_address(&mut self,channel_id: u8, address: NetworkAddress, data: &mut [u8], length: i32) -> TachyonSendResult {
         if let Some(conn) = self.connections_by_address.get(&address) {
             if let Some(sender) = self.servers.get_mut(&conn.tachyon_id) {
-                return sender.send_reliable(channel_id, address, data, length as usize);
+                if channel_id == 0 {
+                    return sender.send_unreliable(address, data, length as usize);
+                } else {
+                    return sender.send_reliable(channel_id, address, data, length as usize);
+                }
             }
         }
         return TachyonSendResult::default();
@@ -451,7 +459,7 @@ mod tests {
 
         let mut reader = LengthPrefixed::default();
         for _ in 0..res.count {
-            let (channel,_address,range) = reader.read(&receive_buffer);
+            let (_channel,_address,range) = reader.read(&receive_buffer);
             let len = range.end - range.start;
             //println!("len:{0} address:{1}", len, address);
 

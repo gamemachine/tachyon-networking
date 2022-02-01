@@ -47,18 +47,13 @@ And then we add an Identity abstraction that can be linked to a connection.  An 
 
 
 ## Concurrency
-The best concurrency is no concurrency. Tachyon is parallel but uses no concurrency primitives internally. Instead it leverages the nature of Udp by simply running multiple Tachyon instances one per port.  And provides a Pool abstraction to manage these instances and run their receive flows in parallel. 
+Tachyon can be run highly parallel but uses no concurrency internally.  By design nothing in Tachyon is thread safe.
+ 
+Parallelism is achieved by running multiple Tachyon's on different ports, and the Pool api exposes those as a single Tachyon more or less.  Managing the internal mappings of connections and identities to ports for you.  And then it runs the receives for those in parallel.
 
-Concurrent sending is supported for unreliable but not reliable. For reliable sends you have to send from one thread at a time.  Udp sockets are atomic at the OS level, so unreliable is just a direct path to that. UnreliableSender is a struct that can be created for use in other threads. That is a rust thing it's not needed for actual thread safety it's just needed for Rust to know it's safe.
+Sending unreliable messages from multiple threads is supported through special unreliable senders (see below).
 
-Parallel receiving uses batching concurrency.  We use a concurrent queue of non concurrent queues to limit fine grained concurrency to just a couple of ops per server.
-
-
-
-## Todo list
-Integrate the pooling so it's more seamless.  Mostly a matter of tweaking the public api a bit and a few more helper methods.  You shouldn't really have to think about the parallelism you just pick a level and go.
-
-There is a complete C# integration layer not yet pushed to github.  Should be coming soon.
+Parallel receiving uses batching concurrency in it's flow.  We use a concurrent queue of non concurrent queues to limit atomic operations to just a small handful per tachyon instance.
 
 
 ## Usage
@@ -66,18 +61,23 @@ Not much in the way of documentation yet but there are a good number of unit tes
 
 update() has to be called once per frame.  That is where nacks and resends in response to nacks received are sent.  In addition to some housekeeping and fragment expiration.  Sends are processed immediately.
 
-Unreliable message bodies need to be offset by +1. Ie if you send a 12 byte message body the byte array slice needs to be 13 length.  Tachyon will write the internal message type into position 0.  It's a bit of extra complexity but the alternative is always doing a memcpy for unreliable messages.
-
 ### Pool usage
-The pool api has a more complex flow and separates reliable and unreliable sending.  The pool maintains an internal mapping of addreses and identities to tachyons.
-So you don't have to maintain that yourself using callbacks.  So PoolUnreliableSender has it's own set of those maps but they map to the cloned sockets instead.
-You can create multiple PoolUnreliableSender's and then move them to different threads.  They are fairly lightweight outside of the map building they do on creation. The intent is you instantiate a sender one per frame/thread, not for every message.
+The pool api has mostly the same send interface as Tachyon single usage.  Mapping of connections and identities to servers is handled internally.  So you just send to
+and address/identity and the pool maps that to the right server.
 
 There are 3 versions of the receive api currently. Two of them do heap allocations and a newer but more complex version
 that does not.  That version writes out received messages into a single out buffer per tachyon, with individual messages prefixed with length, channel, and ip address.  And then you read that out buffer using LengthPrefixed like a stream.  This extra work is primarily to avoid memory fragmention from unnecessary allocations.
 
+### Unreliable senders
+UnreliableSender and PoolUnreliableSender exist so you can send unreliable messages from multiple threads.  They are cheap to create but intended to be used
+for sending a bunch of messages with one instance, they are a bit heavy to instantiate per message.  You can create multiple of these using them in different threads,
+but you can't use one concurrently from multiple threads.
+
 
 ### Basic usage.
+
+The default send api is send_to_target that takes a SendTarget.  If an identity id is set it will lookup the address using that.  If not will use the address.
+Clients always send to a default NetworkAddress.  This api is uniform for Tachyon and Pool.
 
 ```
 let config = TachyonConfig::default();
@@ -91,7 +91,8 @@ client.connect(address);
 let send_buffer: Vec<u8> = vec![0;1024];
 let receive_buffer: Vec<u8> = vec![0;4096];
 
-client.send_reliable(1, NetworkAddress::default(), &mut send_buffer, 32);
+let target = SendTarget {address: NetworkAddress::default(), identity_id: 0};
+client.send_to_target(1, target, &mut send_buffer, 32);
 let receive_result = server.receive_loop(&mut receive_buffer);
 if receive_result.length > 0 && receive_result.error == 0 {
     server.send_reliable(1, receive_result.address, &mut send_buffer, 32);

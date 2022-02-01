@@ -78,22 +78,12 @@ pub fn copy_send_result(from: TachyonSendResult, to: *mut TachyonSendResult) {
 }
 
 #[no_mangle]
-pub extern "C" fn send_unreliable_to(tachyon_ptr: *mut Tachyon, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
+pub extern "C" fn send_to_target(tachyon_ptr: *mut Tachyon, channel: u8, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let tachyon = unsafe { &mut *tachyon_ptr };
     let target: SendTarget = unsafe { std::ptr::read(target_ptr as *const _) };
     let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
 
-    let result = tachyon.send_unreliable_to_target(target, slice, length);
-    copy_send_result(result, ret);
-}
-
-#[no_mangle]
-pub extern "C" fn send_reliable_to(tachyon_ptr: *mut Tachyon, channel: u8, target_ptr: *const SendTarget, data: *mut u8, length: i32, ret: *mut TachyonSendResult) {
-    let tachyon = unsafe { &mut *tachyon_ptr };
-    let target: SendTarget = unsafe { std::ptr::read(target_ptr as *const _) };
-    let slice = unsafe { std::slice::from_raw_parts_mut(data, length as usize) };
-
-    let result = tachyon.send_reliable_to_target(channel, target, slice, length);
+    let result = tachyon.send_to_target(channel, target, slice, length as usize);
     copy_send_result(result, ret);
 }
 
@@ -189,7 +179,7 @@ pub extern "C" fn destroy_unreliable_sender(sender_ptr: *mut UnreliableSender) {
 }
 
 #[no_mangle]
-pub extern "C" fn send_unreliable_to_with_sender(sender_ptr: *mut UnreliableSender, naddress: *const NetworkAddress, data_ptr: *mut u8, length: i32, ret: *mut TachyonSendResult) {
+pub extern "C" fn unreliable_sender_send(sender_ptr: *mut UnreliableSender, naddress: *const NetworkAddress, data_ptr: *mut u8, length: i32, ret: *mut TachyonSendResult) {
     let sender = unsafe { &mut *sender_ptr };
     let address: NetworkAddress = unsafe { std::ptr::read(naddress as *const _) };
     let data = unsafe { std::slice::from_raw_parts_mut(data_ptr, length as usize) };
@@ -199,8 +189,7 @@ pub extern "C" fn send_unreliable_to_with_sender(sender_ptr: *mut UnreliableSend
 
 
 
-// This is for ffi where we would need different allocators depending on environment.
-// Specifically where this is used in both .Net 6 and in Unity's burst compiler.
+// This is for the .Net side
 
 #[repr(C)]
 pub struct MemoryBlock {

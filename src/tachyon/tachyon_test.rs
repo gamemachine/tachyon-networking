@@ -37,18 +37,13 @@ impl TachyonTestClient {
     }
 
     pub fn client_send_reliable(&mut self, channel_id: u8, length: usize) -> TachyonSendResult {
-        return self.client.send_reliable(
-            channel_id,
-            self.client_address,
-            &mut self.send_buffer,
-            length,
-        );
+        let target = SendTarget {address: self.client_address, identity_id: 0};
+        return self.client.send_to_target(channel_id, target,&mut self.send_buffer, length);
     }
 
     pub fn client_send_unreliable(&mut self, length: usize) -> TachyonSendResult {
-        return self
-            .client
-            .send_unreliable(self.client_address, &mut self.send_buffer, length);
+        let target = SendTarget {address: self.client_address, identity_id: 0};
+        return self.client.send_to_target(0,target, &mut self.send_buffer, length);
     }
 
     pub fn client_receive(&mut self) -> TachyonReceiveResult {
@@ -108,9 +103,8 @@ impl TachyonTest {
         if address.is_default() {
             return TachyonSendResult::default();
         }
-        return self
-            .server
-            .send_reliable(channel_id, address, &mut self.send_buffer, length);
+        let target = SendTarget {address: address, identity_id: 0};
+        return self.server.send_to_target(channel_id, target, &mut self.send_buffer, length);
     }
 
     pub fn server_send_unreliable(&mut self, length: usize) -> TachyonSendResult {
@@ -118,24 +112,18 @@ impl TachyonTest {
         if address.is_default() {
             return TachyonSendResult::default();
         }
-        return self
-            .server
-            .send_unreliable(address, &mut self.send_buffer, length);
+        let target = SendTarget {address: address, identity_id: 0};
+        return self.server.send_to_target(0,target, &mut self.send_buffer, length);
     }
 
     pub fn client_send_reliable(&mut self, channel_id: u8, length: usize) -> TachyonSendResult {
-        return self.client.send_reliable(
-            channel_id,
-            self.client_address,
-            &mut self.send_buffer,
-            length,
-        );
+        let target = SendTarget {address: self.client_address, identity_id: 0};
+        return self.client.send_to_target(channel_id,  target,&mut self.send_buffer,length);
     }
 
     pub fn client_send_unreliable(&mut self, length: usize) -> TachyonSendResult {
-        return self
-            .client
-            .send_unreliable(self.client_address, &mut self.send_buffer, length);
+        let target = SendTarget {address: self.client_address, identity_id: 0};
+        return self.client.send_to_target(0,target, &mut self.send_buffer, length);
     }
 
     pub fn server_receive(&mut self) -> TachyonReceiveResult {
@@ -166,10 +154,11 @@ fn send_receive(update: bool,send: bool,channel_id: u8, message_type: u8, client
     if send {
         for _ in 0..4 {
             let send_result: TachyonSendResult;
+            let target = SendTarget {address: client_address, identity_id: 0};
             if message_type == MESSAGE_TYPE_RELIABLE {
-                send_result = client.send_reliable(channel_id, client_address, send_buffer, send_message_size);
+                send_result = client.send_to_target(channel_id, target, send_buffer, send_message_size);
             } else {
-                send_result = client.send_unreliable(client_address, send_buffer, send_message_size);
+                send_result = client.send_to_target(0,target, send_buffer, send_message_size);
             }
             assert_eq!(0, send_result.error);
             assert!(send_result.sent_len > 0);
@@ -185,10 +174,11 @@ fn send_receive(update: bool,send: bool,channel_id: u8, message_type: u8, client
             assert!(receive_result.address.port > 0);
             client_remote.copy_from(receive_result.address);
             if client_remote.port > 0 {
+                let target = SendTarget {address: *client_remote, identity_id: 0};
                 if message_type == MESSAGE_TYPE_RELIABLE {
-                    server.send_reliable(channel_id,*client_remote,send_buffer,send_message_size);
+                    server.send_to_target(channel_id,target,send_buffer,send_message_size);
                 } else {
-                    server.send_unreliable(*client_remote, send_buffer, send_message_size);
+                    server.send_to_target(0,target, send_buffer, send_message_size);
                 }
             }
         }
@@ -226,7 +216,7 @@ fn general_stress() {
     let drop_reliable_only = 0;
     let client_drop_chance = 0;
     let server_drop_chance = 0;
-    let loop_count = 200; // inner loop sends 4 messages
+    let loop_count = 2000; // inner loop sends 4 messages
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
     //let message_type = MESSAGE_TYPE_UNRELIABLE;
@@ -321,7 +311,7 @@ fn general_stress() {
 fn many_clients() {
     let address = NetworkAddress::test_address();
 
-    let client_count = 100;
+    let client_count = 200;
     let loop_count = 4;
     let channel_id = 1;
     let message_type = MESSAGE_TYPE_RELIABLE;
