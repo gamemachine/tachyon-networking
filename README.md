@@ -48,13 +48,17 @@ And then we add an Identity abstraction that can be linked to a connection.  An 
 
 ## Concurrency
 Tachyon can be run highly parallel but uses no concurrency internally.  By design nothing in Tachyon is thread safe.
- 
+
 Parallelism is achieved by running multiple Tachyon's on different ports, and the Pool api exposes those as a single Tachyon more or less.  Managing the internal mappings of connections and identities to ports for you.  And then it runs the receives for those in parallel.
 
 Sending unreliable messages from multiple threads is supported through special unreliable senders (see below).
 
 Parallel receiving uses batching concurrency in it's flow.  We use a concurrent queue of non concurrent queues to limit atomic operations to just a small handful per tachyon instance.
 
+## Unreliable senders
+UnreliableSender and PoolUnreliableSender exist so you can send unreliable messages from multiple threads.  They are  intended to be used
+for sending a bunch of messages with one instance, and are a bit heavy to instantiate per message.  You can create multiple of these using them in different threads,
+but you can't use one concurrently from multiple threads. 
 
 ## Usage
 Not much in the way of documentation yet but there are a good number of unit tests. And ffi.rs encapsulates most of the api.  tachyon_tests.rs has some stress testing unit tests.  The api is designed primarily for ffi consumption, as I use it from a .NET server.
@@ -68,10 +72,7 @@ and address/identity and the pool maps that to the right server.
 There are 3 versions of the receive api currently. Two of them do heap allocations and a newer but more complex version
 that does not.  That version writes out received messages into a single out buffer per tachyon, with individual messages prefixed with length, channel, and ip address.  And then you read that out buffer using LengthPrefixed like a stream.  This extra work is primarily to avoid memory fragmention from unnecessary allocations.
 
-### Unreliable senders
-UnreliableSender and PoolUnreliableSender exist so you can send unreliable messages from multiple threads.  They are cheap to create but intended to be used
-for sending a bunch of messages with one instance, they are a bit heavy to instantiate per message.  You can create multiple of these using them in different threads,
-but you can't use one concurrently from multiple threads.
+
 
 
 ### Basic usage.

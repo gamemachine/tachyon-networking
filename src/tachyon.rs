@@ -17,6 +17,7 @@ pub mod tachyon_socket;
 pub mod unreliable_sender;
 pub mod byte_buffer_pool;
 pub mod pool_unreliable_sender;
+pub mod memory_block;
 
 mod connection_impl;
 
@@ -574,13 +575,28 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_nack_rotation() {
-        println!("{0}", 4 % 5);
+    #[serial]
+    fn test_connect_before_bind() {
+        let address = NetworkAddress::test_address();
+        let mut buffer: Vec<u8> = vec![0;1024];
+        let config = TachyonConfig::default();
+        let mut server = Tachyon::create(config);
+        let mut client = Tachyon::create(config);
+
+        assert!(client.connect(address));
+        server.bind(address);
+
+        let target = SendTarget {address: NetworkAddress::default(), identity_id: 0};
+        let sent = client.send_to_target(1, target, &mut buffer, 32);
+        assert_eq!(0, sent.error);
+
+        let res = server.receive_loop(&mut buffer);
+        assert_eq!(32, res.length);
     }
 
     #[test]
     #[serial]
-    fn test_invalid_receive() {
+    fn test_server_receive_invalid_without_bind() {
         let mut buffer: Vec<u8> = vec![0;1024];
         let config = TachyonConfig::default();
         let mut server = Tachyon::create(config);
